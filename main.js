@@ -31,10 +31,19 @@ const DEFAULT_SETTINGS = {
   postSubfolder: 'Posts',
   postFolder: 'Twitter/Posts',
   postNoteNameTemplate: '{{author}} — {{date}} — {{excerpt}}',
+  urlAsLink: false,
   tags: ['x-post'],
   profileTags: ['x-profile'],
   postNoteOrder: 'dl-ed, url, x-author, x-name, x-post-id, published, x-profile, media, likes, reposts, replies, tags',
-  profileNoteOrder: 'url, icon, banner, x-author, x-name, followers, posts, joined, count, x-synced, tags',
+  // A profile note exists to be linked to, not to report statistics: follower
+  // and post counts are noise next to the hand-assigned t-rank that actually
+  // decides what matters. t-rank is listed although this plugin never produces
+  // it -- naming it here is what positions it when the existing note carries it.
+  //
+  // x-author is deliberately absent: on a profile note it restates the title.
+  // That leaves x-name as the ONLY marker keeping ARCH After Clipping off these
+  // notes -- see the coupling section in CLAUDE.md before removing it too.
+  profileNoteOrder: 'url, icon, banner, t-rank, x-name, tags',
 
   // --- profile picture and header ---
   // The defaults reproduce the layout the hand-made notes already use:
@@ -636,6 +645,7 @@ class ArchXArchivePlugin extends Plugin {
     const body = renderProfile(meta, {
       keep,
       body: existingBody,
+      urlAsLink: this.settings.urlAsLink,
       icon: images.icon,
       banner: images.banner,
       tags: splitList(profile.tags || this.settings.profileTags.join(', ')),
@@ -659,6 +669,7 @@ class ArchXArchivePlugin extends Plugin {
     if (this.findByPostId(post.id)) return false;
 
     const body = renderPost(post, {
+      urlAsLink: this.settings.urlAsLink,
       tags: splitList(profile.tags || this.settings.tags.join(', ')),
       profileLink: `[[${profile.note || '@' + profile.handle}]]`,
       order: splitList(this.settings.postNoteOrder),
@@ -1010,6 +1021,10 @@ class ArchXSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName('Post note name')
       .setDesc('Tokens: {{author}} {{authorName}} {{date}} {{id}} {{excerpt}}')
       .addText((t) => t.setValue(s.postNoteNameTemplate).onChange(async (v) => { s.postNoteNameTemplate = v; await save(); }));
+    new Setting(containerEl).setName('Write url as a markdown link')
+      .setDesc('On gives [Link](https://x.com/…), matching the hand-made notes. Off gives a bare URL. A sync overwrites whichever form a note already had, so decide before syncing notes you made by hand.')
+      .addToggle((t) => t.setValue(s.urlAsLink).onChange(async (v) => { s.urlAsLink = v; await save(); }));
+
     new Setting(containerEl).setName('Post tags')
       .addText((t) => t.setValue(s.tags.join(', ')).onChange(async (v) => { s.tags = splitList(v); await save(); }));
     new Setting(containerEl).setName('Profile tags')

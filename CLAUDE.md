@@ -136,8 +136,19 @@ now `['yt-playlist', 'dl-all', 'x-author', 'x-name']`, and its `loadSettings`
 appends missing markers to a *saved* list rather than replacing it — a saved list
 would otherwise shadow the default and keep the probing going.
 
-**`x-author` and `x-name` are therefore load-bearing across two plugins.** They
-are on both note types here for that reason. Renaming either one, or dropping it
+**`x-author` and `x-name` are therefore load-bearing across two plugins.**
+
+Since the profile template was slimmed, they are no longer both on both note
+types: a post note carries `x-author` and `x-name`, a **profile note carries only
+`x-name`** — `x-author` was dropped from `profileNoteOrder` because on a profile
+note it restates the title. `otherArchKeys` matches on *any* of its names, so one
+marker is enough.
+
+But it means **`x-name` is the only thing keeping After Clipping off profile
+notes.** Removing it from `profileNoteOrder`, or renaming it, restarts the yt-dlp
+storm for every profile note, and the symptom appears in After Clipping's log
+rather than this one. The 27 hand-made notes are covered by the same property,
+which is why they were renamed from `name` to `x-name`. Renaming either one, or dropping it
 from `postNoteOrder` / `profileNoteOrder`, silently restarts the yt-dlp storm —
 and the symptom appears in After Clipping's log, not this one.
 
@@ -145,6 +156,22 @@ and the symptom appears in After Clipping's log, not this one.
 for removal. `buildPostIndex` therefore indexes a note by its `x-post-id` **and**
 by the id parsed out of its `url`, so de-duplication survives their removal. Do
 not reduce that to a single key without checking what the notes on disk carry.
+
+## What the profile template is for
+
+A profile note is an **anchor to link to from other notes**, not a statistics
+page. Follower and post counts were dropped for that reason: filtering is done by
+`t-rank`, a hand-assigned subjective ranking, not by counts the plugin could
+fetch. So the plugin's job on a profile note is the identity and the images, and
+then to stay out of the way of the human's own properties.
+
+That is the reasoning behind the default `url, icon, banner, t-rank, x-name,
+tags`. `t-rank` is named although this plugin never produces it — naming it is
+what positions it when the existing note carries one.
+
+`urlAsLink` covers the last difference from the hand-made notes: they write
+`url` as `[Link](https://x.com/…)` rather than a bare URL. It is a setting rather
+than a guess because a sync overwrites whichever form the note already had.
 
 ## The order setting is the whole template contract
 

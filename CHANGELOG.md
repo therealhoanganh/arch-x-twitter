@@ -2,6 +2,23 @@
 
 
 
+
+## 0.5.0 — unreleased
+
+- **The profile template is slimmed to what a profile note is for**: an anchor to
+  link to, not a statistics page. Default is now
+  `url, icon, banner, t-rank, x-name, tags`. Follower and post counts are gone —
+  filtering is done by the hand-assigned `t-rank`, not by counts.
+- `t-rank` is named in the default order although the plugin never produces it,
+  which is what positions a hand-added one rather than appending it.
+- **`x-author` is dropped from profile notes**, where it only restated the title.
+  It stays on post notes. That makes `x-name` the only marker keeping ARCH After
+  Clipping off profile notes; `otherArchKeys` matches any one name, so this is
+  fine, but removing `x-name` too is not.
+- New setting: **write `url` as a markdown link**, `[Link](https://x.com/…)`,
+  matching the hand-made notes. Off by default. A sync overwrites whichever form
+  a note already had, so it is a setting rather than a guess.
+
 ## 0.4.0 — unreleased
 
 Three bugs, all found by the first sync that actually wrote notes.
