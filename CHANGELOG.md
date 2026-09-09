@@ -3,6 +3,21 @@
 
 
 
+
+## 0.6.0 — unreleased
+
+- **`x-author` on a post note is now a wikilink to the author's profile note.**
+  One property that both names the author and gets you there, replacing a bare
+  `x-author` string beside a separate `x-profile` link that said the same thing.
+- It is built from the post's **author**, not from the profile being synced.
+  Handing it the synced profile's link would credit a quoted post to the wrong
+  person — the `author` vs `user` trap, this time in a property a human reads.
+  `x-profile` still exists and still means the timeline the post was found on.
+- Post template default is now `url, x-author, published, media, tags`.
+  `x-name` is gone: the display name is one click away in the profile note.
+- **`url` is written as a markdown link by default**, `[Link](https://x.com/…)`,
+  matching the hand-made notes.
+
 ## 0.5.0 — unreleased
 
 - **The profile template is slimmed to what a profile note is for**: an anchor to

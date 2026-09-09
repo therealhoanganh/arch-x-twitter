@@ -173,6 +173,27 @@ what positions it when the existing note carries one.
 `url` as `[Link](https://x.com/…)` rather than a bare URL. It is a setting rather
 than a guess because a sync overwrites whichever form the note already had.
 
+## `x-author` is a link, and it is built from the author
+
+On a post note `x-author` is a **wikilink to the author's profile note**,
+`[[@AnthropicAI]]`, not a bare handle. One property both names the author and
+gets you there. It replaced a pair that said the same thing twice: a bare
+`x-author` string beside an `x-profile` link.
+
+**It is built from `author`, never from the profile being synced.** A quoted post
+sitting on someone's timeline was written by someone else, and handing it the
+synced profile's link credits the wrong person — the same `author` vs `user`
+trap as everywhere else, except that here it would be silently wrong in a
+property a human reads. `x-profile` still exists and still means *the timeline it
+was found on*; it is simply not in the default order.
+
+The target note often will not exist — an unresolved link to an unarchived
+account is correct, and still useful.
+
+`x-name` is not on post notes for the same reason: the display name is one click
+away in the profile note. It remains the only After Clipping marker on **profile**
+notes, where `x-author` was dropped.
+
 ## The order setting is the whole template contract
 
 `postNoteOrder` and `profileNoteOrder` decide **what is written at all**, not just
