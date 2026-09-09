@@ -919,6 +919,8 @@ class ArchXArchivePlugin extends Plugin {
     if (JSON.stringify(this.settings) !== before) await this.saveData(this.settings);
 
     this.log('writing profile notes to', this.profileFolderFor({ handle: 'example' }));
+    this.log(`${this.individualProfiles().length} individual + ${this.bulkProfiles().length} bulk profiles, ` +
+      `${this.settings.maxPerProfile || 'all'} posts each, reposts ${this.settings.retweets ? 'on' : 'off'}`);
     this.log('profile template:', this.settings.profileNoteOrder);
     this.log('post template:', this.settings.postNoteOrder);
     if (!Array.isArray(this.settings.tags)) this.settings.tags = [];
