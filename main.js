@@ -33,8 +33,8 @@ const DEFAULT_SETTINGS = {
   postNoteNameTemplate: '{{author}} — {{date}} — {{excerpt}}',
   tags: ['x-post'],
   profileTags: ['x-profile'],
-  postNoteOrder: 'dl-ed, url, x-author, x-author-name, x-post-id, published, x-profile, media, likes, reposts, replies, tags',
-  profileNoteOrder: 'url, x-author, x-author-name, followers, posts, joined, count, x-synced, tags',
+  postNoteOrder: 'dl-ed, url, x-author, x-name, x-post-id, published, x-profile, media, likes, reposts, replies, tags',
+  profileNoteOrder: 'url, x-author, x-name, followers, posts, joined, count, x-synced, tags',
 
   // --- media ---
   downloadMedia: true,
@@ -523,11 +523,18 @@ class ArchXArchivePlugin extends Plugin {
   // The index is built ONCE per sync run and updated as notes are written.
   // Scanning every markdown file per post is what the obvious version does, and
   // at 150 profiles x 200 posts that is 30,000 full-vault scans.
+  // Indexed by BOTH x-post-id and the post URL. The URL already contains the id,
+  // so dedup keeps working when x-post-id is eventually dropped from the
+  // template -- which is the plan. Do not reduce this to one key without
+  // checking which one the notes on disk still carry.
   buildPostIndex() {
     const index = new Map();
     for (const file of this.app.vault.getMarkdownFiles()) {
-      const id = this.app.metadataCache.getFileCache(file)?.frontmatter?.['x-post-id'];
-      if (id) index.set(String(id), file);
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!fm) continue;
+      if (fm['x-post-id']) index.set(String(fm['x-post-id']), file);
+      const fromUrl = String(fm.url || '').match(/\/status\/(\d+)/);
+      if (fromUrl) index.set(fromUrl[1], file);
     }
     this.postIndex = index;
     return index;
@@ -583,6 +590,13 @@ class ArchXArchivePlugin extends Plugin {
       this.settings.postLocationMode = 'same';
     }
     delete this.settings.profileNoteInOwnFolder;
+    // x-author-name became x-name. A saved order string still naming the old key
+    // would silently drop the property to the bottom of the frontmatter.
+    for (const key of ['postNoteOrder', 'profileNoteOrder']) {
+      if (typeof this.settings[key] === 'string' && this.settings[key].includes('x-author-name')) {
+        this.settings[key] = this.settings[key].replace(/x-author-name/g, 'x-name');
+      }
+    }
     if (!Array.isArray(this.settings.tags)) this.settings.tags = [];
     if (!Array.isArray(this.settings.profileTags)) this.settings.profileTags = [];
   }

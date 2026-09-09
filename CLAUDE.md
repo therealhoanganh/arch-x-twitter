@@ -131,14 +131,20 @@ At the intended scale, 150 profiles × 200 posts, that is a yt-dlp process per
 post and tens of thousands of probes nobody asked for.
 
 After Clipping already has the mechanism to avoid this: `otherArchKeys`, which
-makes it skip any note carrying one of the named frontmatter keys. It defaults to
-`['yt-playlist', 'dl-all']` — the ARCH YT Playlists properties — and knows
-nothing about this plugin. **`x-post-id` and `x-profile-id` have to be added to
-that setting**, in After Clipping's own settings tab; changing the default in its
-code does not help an install whose saved `data.json` already shadows it.
+makes it skip any note carrying one of the named frontmatter keys. Its default is
+now `['yt-playlist', 'dl-all', 'x-author', 'x-name']`, and its `loadSettings`
+appends missing markers to a *saved* list rather than replacing it — a saved list
+would otherwise shadow the default and keep the probing going.
 
-That also means `x-post-id` and `x-profile-id` are now load-bearing across two
-plugins. Renaming either one silently re-enables the yt-dlp storm.
+**`x-author` and `x-name` are therefore load-bearing across two plugins.** They
+are on both note types here for that reason. Renaming either one, or dropping it
+from `postNoteOrder` / `profileNoteOrder`, silently restarts the yt-dlp storm —
+and the symptom appears in After Clipping's log, not this one.
+
+`x-post-id` and `x-profile-id` are *not* part of that contract and are planned
+for removal. `buildPostIndex` therefore indexes a note by its `x-post-id` **and**
+by the id parsed out of its `url`, so de-duplication survives their removal. Do
+not reduce that to a single key without checking what the notes on disk carry.
 
 ## Rate limiting, which is the real constraint
 

@@ -16,13 +16,21 @@
   per-profile toggle becomes `perProfile`, and post notes stay beside their
   profile note.
 
+- **`x-author-name` is now `x-name`.** A saved frontmatter order string naming
+  the old key is migrated, so the property does not silently fall to the bottom.
+- Post notes are indexed for de-duplication by `x-post-id` **and** by the id
+  parsed out of their `url`, so dropping `x-post-id` from the template later does
+  not start creating duplicates.
+
 ### Found by the first Obsidian run
 
 - **ARCH After Clipping processes every note this plugin writes.** It read each
   post note's `url` and ran a yt-dlp metadata probe — ~3s per note — and
   downloaded media into the profile folder. At 150 profiles that is tens of
-  thousands of unwanted probes. The fix is in After Clipping's settings, not
-  here: add `x-post-id` and `x-profile-id` to its `otherArchKeys`.
+  thousands of unwanted probes. Fixed in After Clipping: `x-author` and `x-name`
+  are now in its `otherArchKeys` default, and a saved list gets missing markers
+  appended rather than shadowing the default. Those two properties are now a
+  contract between the two plugins.
 
 ## 0.1.0 — unreleased
 
