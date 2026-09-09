@@ -1,4 +1,4 @@
-# ARCH X Archive — working notes
+# ARCH X Twitter — working notes
 
 An Obsidian plugin that archives X/Twitter profiles and single posts into the
 vault as notes, in bulk, driven by `gallery-dl`.
@@ -479,7 +479,7 @@ fine; calling `encodeWebp` is not.
 ## The test vault, and one piece of stale state
 
 `TESTFIELD` (`~/Downloads/TESTFIELD`) is where this runs. The plugin is
-**symlinked** there from `~/Documents/arch-x-archive` rather than copied, so
+**symlinked** there from `~/Documents/arch-x-twitter` rather than copied, so
 editing the repo and reloading Obsidian picks the change up with no build step.
 
 **There are ~165 notes under `X/Profiles/` from before the folder settings

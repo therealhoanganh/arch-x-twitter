@@ -1,5 +1,5 @@
 {
-  "name": "arch-x-archive",
+  "name": "arch-x-twitter",
   "version": "0.10.0",
   "description": "Obsidian plugin that bulk-archives X/Twitter profiles and posts into the vault.",
   "private": true,

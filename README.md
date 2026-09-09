@@ -1,4 +1,4 @@
-# ARCH X Archive
+# ARCH X Twitter
 
 Archives X/Twitter profiles into your Obsidian vault as notes — in bulk. Built
 for keeping a reading list of a few hundred accounts, not for clipping one post
@@ -41,7 +41,7 @@ a small limit and raise it once a full sync completes.
 ## Install
 
 Not in the community catalogue. Install with BRAT, or copy `main.js` and
-`manifest.json` into `.obsidian/plugins/arch-x-archive/`.
+`manifest.json` into `.obsidian/plugins/arch-x-twitter/`.
 
 ## Licence
 
