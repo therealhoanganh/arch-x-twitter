@@ -185,6 +185,41 @@ edit, reload in Obsidian, no build step. Keep both halves.
 the way it actually installs: copy only those two files into a folder with no
 `lib/`, and load it.
 
+## The profile note this is aiming at
+
+The ~27 hand-clipped profile notes in `TESTFIELD/Twitter/Profiles/` are the real
+target. This plugin does not yet produce them. One, in full:
+
+```yaml
+url: "[Link](https://x.com/karpathy)"
+icon: "[[@karpathy Icon.webp|Icon]]"
+banner: "[[@karpathy Banner.webp|Banner]]"
+t-rank: 5. Mentor
+x-name: Andrej Karpathy
+tags:
+  - twitter-profile
+```
+
+Four differences from what `renderProfile` writes, none of them yet reconciled:
+
+- **`icon` and `banner` are downloaded images**, embedded as wikilinks with an
+  alias, named `@handle Icon.webp` / `@handle Banner.webp` and kept in
+  `Twitter/Profiles/Images/`. The plugin downloads nothing at all today. The URLs
+  are already in hand — gallery-dl's twitter metadata carries `profile_image` and
+  `profile_banner` on every row, so no extra request is needed to find them.
+  Note `profile_image` is the small variant; the full-size one is that URL with
+  `_normal` stripped from the filename.
+- **`url` is a markdown link**, `"[Link](https://x.com/karpathy)"`, not a bare
+  URL. Anything parsing `url` back out has to cope with both forms.
+- **`t-rank`** is a hand-assigned ranking. A sync must never overwrite it, which
+  is a good reason for the "never rewrite an existing note" rule to stay.
+- **`tags` is `twitter-profile`**, not the `x-profile` default here.
+
+The frontmatter *order* settings already exist, so matching this is mostly a
+matter of names, plus the image download. Do not "fix" the plugin's defaults to
+match this template without checking: the archiving strategy these notes feed has
+not been decided yet, and that decision drives the template.
+
 ## The test vault, and one piece of stale state
 
 `TESTFIELD` (`~/Downloads/TESTFIELD`) is where this runs. The plugin is
