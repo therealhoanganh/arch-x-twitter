@@ -4,6 +4,19 @@
 
 
 
+
+## 0.7.0 — unreleased
+
+- **`x-profile` is now `shared-by`**, and it is written only when the post is not
+  the profile owner's own. A reposted note reads `x-author: [[@AnthropicAI]]`
+  beside `shared-by: [[@Hesamation]]` — who wrote it, and who put it in front of
+  you. On someone's own post the property is absent rather than saying they
+  shared themselves.
+- Handle comparison is case-insensitive: X is not consistent about capitalisation
+  between the author field and the timeline the post came from.
+- **Tags are now `x-twitter-post` and `x-twitter-profile`** (were `x-post` and
+  `x-profile`).
+
 ## 0.6.0 — unreleased
 
 - **`x-author` on a post note is now a wikilink to the author's profile note.**

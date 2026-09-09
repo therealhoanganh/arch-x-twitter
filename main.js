@@ -33,9 +33,9 @@ const DEFAULT_SETTINGS = {
   postNoteNameTemplate: '{{author}} — {{date}} — {{excerpt}}',
   urlAsLink: true,
   authorAsLink: true,
-  tags: ['x-post'],
-  profileTags: ['x-profile'],
-  postNoteOrder: 'url, x-author, published, media, tags',
+  tags: ['x-twitter-post'],
+  profileTags: ['x-twitter-profile'],
+  postNoteOrder: 'url, x-author, shared-by, published, media, tags',
   // A profile note exists to be linked to, not to report statistics: follower
   // and post counts are noise next to the hand-assigned t-rank that actually
   // decides what matters. t-rank is listed although this plugin never produces
@@ -669,11 +669,21 @@ class ArchXArchivePlugin extends Plugin {
     if (this.app.vault.getAbstractFileByPath(notePath)) return false;
     if (this.findByPostId(post.id)) return false;
 
+    // `shared-by` only when this post is not the profile owner's own: the author
+    // wrote it, this profile passed it on. Comparing handles case-insensitively
+    // because X is inconsistent about capitalisation between the two fields.
+    const { authorOf } = this.lib();
+    const wroteIt = String(authorOf(post.meta).name || '').toLowerCase();
+    const owner = String(profile.handle || '').toLowerCase();
+    const sharedBy = wroteIt && owner && wroteIt !== owner
+      ? `[[${profile.note || '@' + profile.handle}]]`
+      : '';
+
     const body = renderPost(post, {
       urlAsLink: this.settings.urlAsLink,
       authorAsLink: this.settings.authorAsLink,
+      sharedBy,
       tags: splitList(profile.tags || this.settings.tags.join(', ')),
-      profileLink: `[[${profile.note || '@' + profile.handle}]]`,
       order: splitList(this.settings.postNoteOrder),
       mediaLinks: [],
       embeds: [],

@@ -184,14 +184,23 @@ gets you there. It replaced a pair that said the same thing twice: a bare
 sitting on someone's timeline was written by someone else, and handing it the
 synced profile's link credits the wrong person — the same `author` vs `user`
 trap as everywhere else, except that here it would be silently wrong in a
-property a human reads. `x-profile` still exists and still means *the timeline it
-was found on*; it is simply not in the default order.
+property a human reads. What used to be `x-profile` is now **`shared-by`**, and it is written **only when
+the post is not the profile owner's own** — a repost or a quote that appeared on
+their timeline. On a post someone wrote themselves it would have said they shared
+their own post, which is noise. That condition is what makes the property
+legible: if `shared-by` is there, someone passed the post on.
+
+The handle comparison is case-insensitive, because X is not consistent about
+capitalisation between `author.name` and the timeline it came from.
 
 The target note often will not exist — an unresolved link to an unarchived
 account is correct, and still useful.
 
-`x-name` is not on post notes for the same reason: the display name is one click
-away in the profile note. It remains the only After Clipping marker on **profile**
+So a reposted note reads `x-author: [[@AnthropicAI]]` — who wrote it — beside
+`shared-by: [[@Hesamation]]` — who put it in front of you.
+
+`x-name` is not on post notes for the same reason as before: the display name is
+one click away in the profile note. It remains the only After Clipping marker on **profile**
 notes, where `x-author` was dropped.
 
 ## The order setting is the whole template contract
