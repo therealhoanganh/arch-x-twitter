@@ -185,6 +185,23 @@ edit, reload in Obsidian, no build step. Keep both halves.
 the way it actually installs: copy only those two files into a folder with no
 `lib/`, and load it.
 
+## The test vault, and one piece of stale state
+
+`TESTFIELD` (`~/Downloads/TESTFIELD`) is where this runs. The plugin is
+**symlinked** there from `~/Documents/arch-x-archive` rather than copied, so
+editing the repo and reloading Obsidian picks the change up with no build step.
+
+**There are ~165 notes under `X/Profiles/` from before the folder settings
+existed**, written by 0.1.0 under the old `X/Profiles` default and still carrying
+`x-author-name` instead of `x-name`. The plan is to delete `X/` and re-sync into
+the `Twitter/Profiles` and `Twitter/Posts` defaults; it had not been done at the
+time of writing. Do not treat those notes as evidence of current behaviour, and
+check whether `X/` still exists before concluding anything from what is on disk.
+
+Enumeration has run there against several real profiles with cookies from Chrome
+and worked. Never exercised: the setup modal's install button, the bulk-add
+modal, `promptForUrl`, and every folder mode other than the default.
+
 ## Not yet built
 
 This is a scaffold with a working enumeration and note-writing path. Still open:
