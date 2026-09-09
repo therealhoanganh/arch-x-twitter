@@ -1,6 +1,27 @@
 # Changelog
 
 
+
+## 0.4.0 — unreleased
+
+Three bugs, all found by the first sync that actually wrote notes.
+
+- **A profile note rewrite no longer destroys hand-added properties.** The note
+  was replaced wholesale on every sync, so `t-rank` — a human judgement no sync
+  can reconstruct — and any hand-written body would have been lost the first time
+  one of the 27 existing profiles was synced. The existing note is now read first
+  and each unknown property carried over as its raw lines. An existing non-empty
+  body is kept.
+- **The frontmatter order setting now decides what is written**, not just the
+  sequence: a property the plugin produces that is not on the list is dropped.
+  `x-profile-id`, `following`, `verified` and `lang` stop appearing. A hand-added
+  property named in the list is written at that position rather than appended.
+- **Settings migrations are saved.** They ran in memory on every load and never
+  reached `data.json`, so the `x-author-name` → `x-name` rename worked at runtime
+  while the file kept the old string. A saved order string also now gains
+  properties added since it was written — necessary, because an absent name is
+  now a deletion rather than an append.
+
 ## 0.3.0 — unreleased
 
 - **The profile picture and header are downloaded**, saved beside the profile

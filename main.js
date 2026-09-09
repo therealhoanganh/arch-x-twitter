@@ -613,13 +613,29 @@ class ArchXArchivePlugin extends Plugin {
   }
 
   async writeProfileNote(profile, posts, folder) {
-    const { renderProfile, sanitizeName } = this.lib();
+    const { renderProfile, sanitizeName, splitNote } = this.lib();
     const first = posts.find((p) => p.meta && (p.meta.user || p.meta.author));
     const meta = first ? first.meta : { user: { name: profile.handle } };
     const name = sanitizeName(profile.note || `@${profile.handle}`);
     const notePath = normalizePath(`${folder}/${name}.md`);
     const images = await this.fetchProfileImages(profile, meta, folder);
+
+    // A profile note is rewritten on every sync, and these notes carry hand-added
+    // properties -- t-rank is a human judgement no sync can reconstruct -- and
+    // hand-written bodies. Read the existing note and carry both across.
+    const existing = this.app.vault.getAbstractFileByPath(notePath);
+    let keep = null;
+    let existingBody = '';
+    if (existing instanceof TFile) {
+      const raw = await this.app.vault.read(existing);
+      const split = splitNote(raw);
+      keep = split;
+      existingBody = split.body;
+    }
+
     const body = renderProfile(meta, {
+      keep,
+      body: existingBody,
       icon: images.icon,
       banner: images.banner,
       tags: splitList(profile.tags || this.settings.profileTags.join(', ')),
@@ -627,7 +643,6 @@ class ArchXArchivePlugin extends Plugin {
       syncedAt: new Date().toISOString().slice(0, 19) + 'Z',
       order: splitList(this.settings.profileNoteOrder),
     });
-    const existing = this.app.vault.getAbstractFileByPath(notePath);
     if (existing instanceof TFile) await this.app.vault.modify(existing, body);
     else await this.app.vault.create(notePath, body);
     return notePath;
@@ -718,6 +733,7 @@ class ArchXArchivePlugin extends Plugin {
 
   async loadSettings() {
     const saved = (await this.loadData()) || {};
+    const before = JSON.stringify(saved);
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
     if (!Array.isArray(this.settings.profiles)) this.settings.profiles = [];
     // 0.1.0 had a single archiveRoot plus a per-profile-folder toggle. Only
@@ -737,6 +753,23 @@ class ArchXArchivePlugin extends Plugin {
         this.settings[key] = this.settings[key].replace(/x-author-name/g, 'x-name');
       }
     }
+    // A saved order string predates any property added since it was saved, and
+    // the order list is now what decides whether a property is written at all --
+    // so a new one has to be inserted, not left to be appended or dropped.
+    // Inserted after `url`, which every order string starts with.
+    for (const [key, added] of [['profileNoteOrder', ['icon', 'banner']], ['postNoteOrder', []]]) {
+      const list = splitList(this.settings[key]);
+      const missing = added.filter((k) => !list.includes(k));
+      if (!missing.length) continue;
+      const at = list.indexOf('url');
+      list.splice(at >= 0 ? at + 1 : 0, 0, ...missing);
+      this.settings[key] = list.join(', ');
+    }
+
+    // Migrations run in memory. Without this they re-run on every load and, worse,
+    // never reach data.json -- so the settings tab shows one thing and the file
+    // says another until something unrelated triggers a save.
+    if (JSON.stringify(this.settings) !== before) await this.saveData(this.settings);
     if (!Array.isArray(this.settings.tags)) this.settings.tags = [];
     if (!Array.isArray(this.settings.profileTags)) this.settings.profileTags = [];
   }

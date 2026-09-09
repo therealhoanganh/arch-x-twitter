@@ -146,6 +146,53 @@ for removal. `buildPostIndex` therefore indexes a note by its `x-post-id` **and*
 by the id parsed out of its `url`, so de-duplication survives their removal. Do
 not reduce that to a single key without checking what the notes on disk carry.
 
+## The order setting is the whole template contract
+
+`postNoteOrder` and `profileNoteOrder` decide **what is written at all**, not just
+the sequence. A property this plugin produces that is not on the list is
+**dropped**. That is how the note is slimmed to the properties actually wanted,
+and it is why `x-profile-id`, `following` and `verified` stopped appearing without
+any code change.
+
+This is deliberately *different* from what a name on the list but not produced
+does — that is simply skipped — and different again from a property found on the
+**existing note**, which is never the plugin's to delete. See below.
+
+**A profile note is rewritten on every sync, and that used to destroy hand-added
+properties.** `vault.modify` replaced the whole file, so `t-rank: 5. Mentor` — a
+human judgement no sync can reconstruct — and any hand-written body were gone on
+the next run. It never actually bit, because the 27 hand-made notes had not been
+synced yet, but syncing one would have.
+
+`splitNote()` now reads the existing note first and keeps each property as its
+**raw lines** rather than parsing and re-serialising, so a value this code does
+not understand survives byte for byte. A kept property named in the order list is
+written at that position; one that is not is appended after the ordered part. An
+existing non-empty body is preserved as-is — a bio refresh is worth less than
+whatever a human wrote under it.
+
+## Settings migrations must persist
+
+`loadSettings` compares the settings it built against what was on disk and saves
+when they differ. Without that, a migration ran **in memory on every load and
+never reached `data.json`**, so the settings tab showed one thing and the file
+said another until an unrelated change triggered a save. That is exactly what
+happened with the `x-author-name` → `x-name` rename: it worked at runtime, and
+`data.json` kept the old string for days.
+
+Because the order list now decides whether a property is written at all, adding a
+property to the plugin means **inserting it into a saved order string** — leaving
+it to be appended is no longer harmless, and leaving it out drops it. That
+insertion happens after `url`, which every order string starts with.
+
+One migration to be careful with: the 0.1.0 layout migration reproduces the old
+`X/Profiles` folders exactly, on purpose, so an upgrade does not silently move
+files. For this vault that was the wrong answer — the whole point of the change
+was to move to `Twitter/` — and `data.json` was edited by hand to the new
+defaults instead. Both behaviours are defensible; the migration is right for
+someone with an established archive and wrong for someone who wants the new
+layout, and there is no way to tell those apart from inside `loadSettings`.
+
 ## Rate limiting, which is the real constraint
 
 X rate-limits an authenticated session aggressively, and 150 profiles is a lot of
