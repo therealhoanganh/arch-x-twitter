@@ -2,8 +2,27 @@
 
 ## 0.1.0 — unreleased
 
-First scaffold. Enumeration and note writing work; media download does not exist
-yet. Nothing here has been run against a real X timeline.
+First scaffold. Enumeration and note writing work and have been run against a
+live timeline; media download does not exist yet.
+
+**Found by the first live run, against gallery-dl 1.32.11**
+
+Six things were wrong in the doc-derived first draft. Each is now measured:
+
+- **Tweet ids were being rounded away.** 19-digit snowflake ids exceed
+  `Number.MAX_SAFE_INTEGER`, so `JSON.parse` turned `…918` into `…920` and every
+  post URL 404'd. Id-shaped fields are quoted in the raw text before parsing and
+  are strings everywhere afterwards.
+- **`--range` limits files, not posts.** `--range 1-3` returned 3 media files and
+  66 posts. Switched to `--post-range`.
+- **A bare `x.com/<name>` returns a Queue row and no posts.** Timeline URLs are
+  now explicit, and a queue-only result is an error rather than an empty result.
+- **Text-only posts produce no `Url` row**, only a `Directory` row — 66 posts on
+  one timeline gave 66 Directory rows and 3 Url rows. Both types are read.
+- **Errors arrive in-band**: exit 0, empty stderr, `[-1, {error, message}]` on
+  stdout. Parsed and thrown properly instead of being read as "0 posts, fine".
+- **Posts works without cookies** via gallery-dl's guest token; replies, media and
+  likes return `AuthRequired`. The dropdowns and error text now say so.
 
 **Fetching**
 - `gallery-dl` does the fetching, in the same shape as ARCH YT Playlists: the

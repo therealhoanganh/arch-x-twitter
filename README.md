@@ -6,9 +6,9 @@ at a time.
 
 ## Status
 
-Early. Enumeration and note writing work; **media download is not implemented
-yet**, and nothing has been run against a real timeline. Try it on one profile
-with a small limit first.
+Early. Enumeration and note writing work and have been checked against a live
+timeline; **media download is not implemented yet**, and none of it has run
+inside Obsidian. Try one profile with a small limit first.
 
 ## What it does
 
@@ -25,9 +25,9 @@ Desktop only, and two things:
 
 - **gallery-dl** — the plugin can install it for you into a private Python
   environment inside its own folder, or use `brew install gallery-dl`
-- **A browser you are logged into X with** — X shows almost nothing to a
-  logged-out client. Cookies are read at the moment of each run and never stored
-  by the plugin.
+- **A browser you are logged into X with** — optional for Posts, which works via
+  a guest token, but required for replies, media and likes. Cookies are read at
+  the moment of each run and never stored by the plugin.
 
 ffmpeg is only needed once video download exists.
 

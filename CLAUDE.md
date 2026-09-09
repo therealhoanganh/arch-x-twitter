@@ -34,11 +34,44 @@ removable with the plugin folder, and it does not touch the user's Python.
 Homebrew is the documented manual fallback. Do not "restore" a binary download
 path; there is nothing to download.
 
-**A tweet with no image is not media, and gallery-dl is a media downloader.**
-Without `-o extractor.twitter.text-tweets=true` every text-only post is silently
-missing from the output — not an error, just absent, which looks exactly like an
-empty timeline. This flag is on by default in `buildArgs`, and turning it off
-turns this into a media archiver.
+**Tweet ids do not survive `JSON.parse`.** X's ids are 19-digit snowflakes and
+`Number.MAX_SAFE_INTEGER` is 16 digits, so `JSON.parse` silently rounds
+`1812255561930731918` to `...920`. This is not theoretical: on the first live run
+every post URL 404'd and the id used for de-duplication was wrong with it.
+
+There is no parser option for this and a reviver is handed the number after the
+damage, so `quoteBigIds()` rewrites id-shaped fields to strings in the raw text
+before parsing. Every id in this plugin is a **string** from that point on. Do
+not "tidy" them back to numbers, and do not compare an id with `==` against
+something that has been through `Number()`.
+
+**A tweet with no image produces no `Url` row at all.** Even with
+`extractor.twitter.text-tweets=true`, a text-only post arrives as a **Directory**
+row (type 2) carrying the full metadata including `content`; only media produce
+`Url` rows (type 3). Measured on one live timeline: 66 posts → 66 Directory rows
+and 3 Url rows. Reading `Url` rows alone — which is what a media downloader's
+output looks like it should mean — drops almost every post.
+
+**`--range` limits files. `--post-range` limits posts.** `--range 1-3` on a
+timeline returned three media files and sixty-six posts. "Most recent N posts"
+has to use `--post-range`; using `--range` for it silently fetches the whole
+timeline.
+
+**A bare `x.com/<name>` never returns posts.** It maps to gallery-dl's `user`
+extractor, which emits a single **Queue** row (type 6) handing the timeline URL
+onward, and exits 0. `profileUrl()` therefore always appends an explicit suffix,
+and `syncProfile` treats "queue rows and no items" as an error rather than as an
+empty timeline.
+
+**An error is not an error exit.** A refused timeline comes back as exit code 0,
+empty stderr, and `[-1, {"error": "AuthRequired", ...}]` on stdout. Checking the
+exit code reports "0 posts, fine" for a profile that said no. `parseDumpJson`
+returns `errors` separately and `syncProfile` throws on it.
+
+**Only Posts works without cookies.** gallery-dl fetches a guest token by itself,
+which is enough for `/timeline` and `/tweets`. `/with_replies`, `/media` and
+`/likes` return `AuthRequired` without a logged-in session. The settings
+dropdowns label these, and `explain()` says which setting fixes it.
 
 **`author` and `user` are different people.** In gallery-dl's twitter metadata,
 `author` wrote the post and `user` owns the timeline it was found on. On a repost
@@ -119,6 +152,9 @@ This is a scaffold with a working enumeration and note-writing path. Still open:
   into one note.
 - **Single-post URLs.** `promptForUrl` currently treats any x.com URL as a
   profile. A `/status/` URL should archive just that post.
-- **Nothing has been run against a real timeline yet.** Every claim above about
-  gallery-dl's flags comes from its documentation, not from a run. Verify against
-  one profile with `maxPerProfile: 5` before pointing it at 150.
+- **Only one profile has been run, at five posts.** The claims above are measured
+  against gallery-dl 1.32.11 and a live `x.com/naval` timeline: URL forms, message
+  types, `--post-range`, the in-band error, the guest token, and the id rounding.
+  What has *not* been exercised: a large `--post-range`, the download archive,
+  rate limiting under 150 profiles, protected accounts, threads, or any of this
+  running inside Obsidian rather than through `lib/` in Node.

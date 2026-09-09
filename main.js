@@ -347,14 +347,27 @@ class ArchXArchivePlugin extends Plugin {
     const max = Number(profile.maxPerProfile ?? this.settings.maxPerProfile) || 0;
     const r = await this.runGalleryDl(target, {
       dumpJson: true,
-      range: max ? `1-${max}` : '',
+      postRange: max ? `1-${max}` : '',
       archiveFile: this.settings.useDownloadArchive ? this.archivePath() : '',
     }, 0);
 
-    if (r.code !== 0 && !r.stdout.trim()) {
+    const parsed = parseDumpJson(r.stdout);
+
+    // gallery-dl reports a refused timeline IN-BAND: exit 0, empty stderr, and a
+    // [-1, {error, message}] row on stdout. Checking the exit code alone reports
+    // "0 posts, fine" for a profile that actually said no.
+    if (parsed.errors.length) {
+      throw new Error(this.explain(parsed.errors.map((e) => `${e.error || ''} ${e.message || ''}`).join('; ')));
+    }
+    if (r.code !== 0 && !parsed.items.length) {
       throw new Error(this.explain(r.stderr) || `gallery-dl exited ${r.code}`);
     }
-    const posts = groupByTweet(parseDumpJson(r.stdout));
+    // A Queue row and nothing else means the URL was handed to another extractor
+    // rather than enumerated -- which is what a bare x.com/<name> does.
+    if (!parsed.items.length && parsed.queued.length) {
+      throw new Error(`gallery-dl passed ${target} on to another extractor instead of listing posts. Use an explicit timeline URL.`);
+    }
+    const posts = groupByTweet(parsed.items);
     this.log(`@${profile.handle}: ${posts.length} posts`);
     if (!posts.length) return 0;
 
@@ -368,13 +381,16 @@ class ArchXArchivePlugin extends Plugin {
     return written;
   }
 
-  // gallery-dl's failures are mostly one of three, and each has a different fix.
-  explain(stderr) {
-    const s = String(stderr || '');
+  // Each of these has a different fix, and gallery-dl's own wording says none of
+  // them. AuthRequired in particular is what /media and /with_replies return for
+  // a logged-out client, and it reads like a bug rather than a missing setting.
+  explain(raw) {
+    const s = String(raw || '');
+    if (/AuthRequired|authenticated cookies/i.test(s)) return 'That timeline needs a logged-in session. Pick a browser under "Cookies from browser" in settings — Posts works without one, but replies, media and likes do not.';
     if (/401|Unauthorized|login|authorization/i.test(s)) return 'X refused the request — cookies are missing or stale. Log in to X in your browser, then sync again.';
     if (/429|rate.?limit/i.test(s)) return 'Rate-limited by X. Raise "Seconds between requests" and try a smaller batch.';
     if (/404|Not Found|suspended/i.test(s)) return 'Profile not found, suspended, or protected.';
-    return s.trim().split('\n').filter(Boolean).slice(-1)[0] || '';
+    return s.trim().split('\n').filter(Boolean).slice(-1)[0] || 'gallery-dl returned nothing usable.';
   }
 
   archivePath() { return path.join(this.pluginDir(), 'seen.sqlite3'); }
@@ -630,7 +646,7 @@ class ArchXSettingTab extends PluginSettingTab {
         .setName(`@${p.handle}`)
         .addToggle((t) => t.setTooltip('Include in Sync all').setValue(p.enabled !== false)
           .onChange(async (v) => { p.enabled = v; await save(); }))
-        .addDropdown((d) => d.addOptions({ '': 'Default timeline', posts: 'Posts', replies: 'With replies', media: 'Media only', likes: 'Likes' })
+        .addDropdown((d) => d.addOptions({ '': 'Default timeline', posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
           .setValue(p.timeline || '').onChange(async (v) => { p.timeline = v; await save(); }))
         .addButton((b) => b.setIcon('refresh-cw').setTooltip('Sync this profile')
           .onClick(() => this.plugin.enqueue(async () => {
@@ -644,7 +660,7 @@ class ArchXSettingTab extends PluginSettingTab {
     containerEl.createEl('h3', { text: 'What to fetch' });
 
     new Setting(containerEl).setName('Default timeline')
-      .addDropdown((d) => d.addOptions({ posts: 'Posts', replies: 'With replies', media: 'Media only', likes: 'Likes' })
+      .addDropdown((d) => d.addOptions({ posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
         .setValue(s.timeline).onChange(async (v) => { s.timeline = v; await save(); }));
 
     new Setting(containerEl).setName('Most recent posts per profile')
@@ -683,7 +699,7 @@ class ArchXSettingTab extends PluginSettingTab {
 
     const browsers = this.plugin.detectBrowsers();
     new Setting(containerEl).setName('Cookies from browser')
-      .setDesc('X shows almost nothing to a logged-out client. Cookies are read at run time and never stored here.')
+      .setDesc('Posts works without cookies via a guest token. Replies, media and likes do not. Cookies are read at run time and never stored here.')
       .addDropdown((d) => {
         d.addOption('', 'None');
         for (const b of browsers) d.addOption(b.name, b.name);
