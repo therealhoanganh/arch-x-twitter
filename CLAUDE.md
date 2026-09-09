@@ -322,6 +322,21 @@ build time rather than silently at load time.
 `lib/` from disk when it did not. That fallback keeps the repo runnable unbuilt:
 edit, reload in Obsidian, no build step. Keep both halves.
 
+**Editing `lib/` and reloading the plugin was silently running the OLD code.**
+Electron's `require()` caches by resolved path, and disabling and re-enabling a
+plugin does **not** clear that cache — only a full app reload did. So the disk
+fallback, whose whole purpose is the edit-and-reload loop, quietly did nothing
+for `lib/`, and it looked exactly like the edit had not been saved.
+
+`dropLibFromRequireCache()` deletes the cached entries before requiring. It
+matches the plugin folder **and its realpath**, because during development that
+folder is a symlink into the repo and `require` resolves symlinks, so the cached
+keys live under the repo path rather than under `.obsidian`.
+
+Changes to `main.js` were never affected — Obsidian re-evaluates that itself.
+That asymmetry is what made this confusing: some edits took, others did not.
+
+
 ## Releasing
 
 `npm run build` writes `dist/main.js` and `dist/manifest.json`. Verify a release

@@ -6,6 +6,17 @@
 
 
 
+
+## 0.8.1 — unreleased
+
+- **Reloading the plugin now actually reloads `lib/`.** Electron's `require()`
+  caches by resolved path and a disable/enable does not clear it, so editing
+  anything in `lib/` and reloading kept running the old code — while `main.js`
+  edits took effect, which made it look like changes were randomly not saving.
+  Only a full app reload worked. The cache entries are now dropped before
+  requiring, matching the plugin folder and its realpath, since during
+  development it is a symlink into the repo.
+
 ## 0.8.0 — unreleased
 
 Found by turning reposts on and following the links.

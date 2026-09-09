@@ -1,7 +1,7 @@
 {
   "id": "arch-x-archive",
   "name": "ARCH X Archive",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "minAppVersion": "1.6.0",
   "description": "Archives X/Twitter profiles and single posts into the vault as notes, in bulk, using gallery-dl: post text, metadata, media and thread context, with incremental re-runs.",
   "author": "Hoang Anh",

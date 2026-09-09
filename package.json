@@ -1,6 +1,6 @@
 {
   "name": "arch-x-archive",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Obsidian plugin that bulk-archives X/Twitter profiles and posts into the vault.",
   "private": true,
   "scripts": {
