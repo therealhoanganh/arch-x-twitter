@@ -534,3 +534,30 @@ This is a scaffold with a working enumeration and note-writing path. Still open:
 
   Since updated: enumeration and note writing have now run inside Obsidian across
   several profiles with cookies from Chrome, and worked.
+
+## Rewriting history means repointing every tag
+
+If commits are ever rewritten — an author correction, stripping a trailer —
+moving `main` is not enough. **A tag is a reference**, so any tag left on an old
+commit keeps that commit alive on GitHub, and it keeps whatever was wrong with it
+alive too: the old author, the old trailer, the contributor entry derived from
+them. This has already caused an afternoon of confusion, where `main` was clean
+and the contributors list was not.
+
+The steps, in order:
+
+1. Note which commit each tag points at **before** rewriting, by commit subject —
+   the SHAs are about to change.
+2. Rewrite, e.g. `git rebase --root --exec '<amend script>'`.
+3. Move every local tag onto its new equivalent: `git tag -f <tag> <new sha>`.
+4. `git push --force-with-lease origin main`.
+5. Repoint each remote tag:
+   `gh api --method PATCH repos/<owner>/<repo>/git/refs/tags/<tag> -f sha=<new> -F force=true`
+6. Verify no ref is orphaned:
+   `gh api repos/<owner>/<repo>/git/refs --jq '.[] | "\(.ref) \(.object.sha)"'`
+   — every one should be an ancestor of `main`.
+
+Release assets survive a tag move; they are attached to the release, not the
+commit. GitHub's contributors widget is cached separately and lags behind all of
+this, so check `git/refs` rather than the web page to know whether the work is
+actually done.
