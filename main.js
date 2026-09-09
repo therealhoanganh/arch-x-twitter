@@ -8,8 +8,17 @@ const { execFile } = require('child_process');
 
 const DEFAULT_SETTINGS = {
   // --- what to archive ---
+  // Two lists, deliberately. `profiles` is a handful of accounts that each need
+  // their own settings and get their own row; `bulkList` is the long tail --
+  // hundreds of handles sharing one set of options, kept as text because
+  // hundreds of rows makes the settings tab unusable to load and to search.
   // Each entry: { handle, timeline, note, tags, enabled }
   profiles: [],
+  bulkList: '',
+  bulkTimeline: '',
+  bulkTags: '',
+  bulkMaxPerProfile: '',
+  bulkOpen: false,
   timeline: 'posts',        // posts | replies | media | likes
   retweets: true,
   replies: false,
@@ -99,6 +108,9 @@ class ArchXArchivePlugin extends Plugin {
     this.queue = Promise.resolve();
 
     this.addCommand({ id: 'sync-all-profiles', name: 'Sync all profiles', callback: () => this.enqueue(() => this.syncAll()) });
+    this.addCommand({ id: 'sync-individual', name: 'Sync individual profiles only', callback: () => this.enqueue(() => this.syncList(this.individualProfiles(), 'individual profiles')) });
+    this.addCommand({ id: 'sync-bulk', name: 'Sync the bulk list only', callback: () => this.enqueue(() => this.syncList(this.bulkProfiles(), 'the bulk list')) });
+    this.addCommand({ id: 'profile-notes-only', name: 'Create profile notes only (no posts)', callback: () => this.enqueue(() => this.syncList(this.allProfiles(), 'every list', { profileOnly: true })) });
     this.addCommand({ id: 'archive-url', name: 'Archive an X post or profile by URL…', callback: () => this.promptForUrl() });
     this.addCommand({ id: 'setup', name: 'Set up gallery-dl', callback: () => this.setup() });
 
@@ -392,36 +404,90 @@ class ArchXArchivePlugin extends Plugin {
 
   /* ---------------- syncing ---------------- */
 
-  async syncAll() {
-    const active = (this.settings.profiles || []).filter((p) => p.enabled !== false && p.handle);
-    if (!active.length) return new Notice('No profiles configured yet. Add some in settings.', 8000);
+  // The bulk list is a plain newline-separated block of handles sharing one set
+  // of options. Hundreds of individual rows made the settings tab unusable, so
+  // the many live here and the few that need their own settings stay as rows.
+  bulkProfiles() {
+    const { handleFromUrl } = this.lib();
+    const seen = new Set();
+    const out = [];
+    for (const line of String(this.settings.bulkList || '').split('\n')) {
+      const raw = line.trim();
+      if (!raw || raw.startsWith('#')) continue;
+      const handle = (handleFromUrl(raw) || raw.replace(/^@/, '')).split(/[/?]/)[0];
+      if (!handle || seen.has(handle.toLowerCase())) continue;
+      seen.add(handle.toLowerCase());
+      out.push({
+        handle,
+        note: `@${handle}`,
+        timeline: this.settings.bulkTimeline || '',
+        tags: this.settings.bulkTags || '',
+        maxPerProfile: this.settings.bulkMaxPerProfile === '' || this.settings.bulkMaxPerProfile == null
+          ? undefined
+          : Number(this.settings.bulkMaxPerProfile),
+      });
+    }
+    return out;
+  }
+
+  individualProfiles() {
+    return (this.settings.profiles || []).filter((p) => p.enabled !== false && p.handle);
+  }
+
+  // A handle in both lists is synced once. The individual row wins, because it
+  // is the one carrying deliberate per-profile settings.
+  allProfiles() {
+    const rows = this.individualProfiles();
+    const named = new Set(rows.map((p) => p.handle.toLowerCase()));
+    return [...rows, ...this.bulkProfiles().filter((p) => !named.has(p.handle.toLowerCase()))];
+  }
+
+  async syncList(list, label, opts = {}) {
+    const active = list.filter((p) => p.handle);
+    if (!active.length) return new Notice(`No profiles in ${label}.`, 8000);
     this.buildPostIndex();
-    const notice = new Notice(`Syncing 0/${active.length} profiles…`, 0);
+    const what = opts.profileOnly ? 'Fetching profile notes' : 'Syncing';
+    const notice = new Notice(`${what} 0/${active.length}…`, 0);
     let written = 0, failed = 0;
+    const problems = [];
     for (let i = 0; i < active.length; i++) {
-      notice.setMessage(`Syncing ${i + 1}/${active.length}\n@${active[i].handle}`);
+      notice.setMessage(`${what} ${i + 1}/${active.length}\n@${active[i].handle}`);
       try {
-        written += await this.syncProfile(active[i]);
+        written += await this.syncProfile(active[i], opts);
       } catch (e) {
         failed++;
+        problems.push(`@${active[i].handle}: ${e.message}`);
         console.error('[arch-x]', active[i].handle, e);
       }
     }
     notice.hide();
-    new Notice(`Done. ${written} new notes from ${active.length} profiles.` + (failed ? ` ${failed} failed.` : ''), 12000);
+    if (problems.length) this.log('failures:\n' + problems.join('\n'));
+    new Notice(
+      opts.profileOnly
+        ? `Done. ${active.length - failed} profile notes from ${label}.` + (failed ? ` ${failed} failed.` : '')
+        : `Done. ${written} new notes from ${active.length} profiles in ${label}.` + (failed ? ` ${failed} failed — see the console.` : ''),
+      12000
+    );
   }
 
-  async syncProfile(profile) {
+  async syncAll() { return this.syncList(this.allProfiles(), 'every list'); }
+
+  // `profileOnly` writes the profile note and its images and no post notes.
+  // X has no endpoint for "just this account's details" that gallery-dl exposes,
+  // so one post is still fetched -- the author block rides along on every row --
+  // but nothing is written from it. The download archive is skipped in that mode
+  // so a later real sync does not consider that post already seen.
+  async syncProfile(profile, opts = {}) {
     const { profileUrl, parseDumpJson, groupByTweet } = this.lib();
     const target = profileUrl(profile.handle, profile.timeline || this.settings.timeline);
     if (!target) throw new Error(`"${profile.handle}" is not a usable handle`);
 
     if (!this.postIndex) this.buildPostIndex();
-    const max = Number(profile.maxPerProfile ?? this.settings.maxPerProfile) || 0;
+    const max = opts.profileOnly ? 1 : (Number(profile.maxPerProfile ?? this.settings.maxPerProfile) || 0);
     const r = await this.runGalleryDl(target, {
       dumpJson: true,
       postRange: max ? `1-${max}` : '',
-      archiveFile: this.settings.useDownloadArchive ? this.archivePath() : '',
+      archiveFile: !opts.profileOnly && this.settings.useDownloadArchive ? this.archivePath() : '',
     }, 0);
 
     const parsed = parseDumpJson(r.stdout);
@@ -441,11 +507,12 @@ class ArchXArchivePlugin extends Plugin {
       throw new Error(`gallery-dl passed ${target} on to another extractor instead of listing posts. Use an explicit timeline URL.`);
     }
     const posts = groupByTweet(parsed.items);
-    this.log(`@${profile.handle}: ${posts.length} posts`);
+    this.log(`@${profile.handle}: ${posts.length} posts${opts.profileOnly ? ' (profile note only)' : ''}`);
     if (!posts.length) return 0;
 
     const profileFolder = await this.folderFor(profile);
     await this.writeProfileNote(profile, posts, profileFolder);
+    if (opts.profileOnly) return 0;
 
     const postFolder = this.postFolderFor(profile, profileFolder);
     if (postFolder !== profileFolder) await this.ensureFolder(postFolder);
@@ -947,38 +1014,6 @@ class SetupModal extends Modal {
   }
 }
 
-class BulkAddModal extends Modal {
-  constructor(app, plugin, onDone) { super(app); this.plugin = plugin; this.onDone = onDone; }
-  onOpen() {
-    this.titleEl.setText('Add profiles');
-    this.contentEl.createEl('p', { text: 'One per line. Handles, @handles or full x.com URLs all work.' });
-    const ta = this.contentEl.createEl('textarea');
-    ta.style.width = '100%';
-    ta.rows = 14;
-    ta.focus();
-    const row = this.contentEl.createDiv({ cls: 'modal-button-container' });
-    row.createEl('button', { text: 'Cancel' }).onclick = () => this.close();
-    row.createEl('button', { text: 'Add', cls: 'mod-cta' }).onclick = async () => {
-      const { handleFromUrl } = this.plugin.lib();
-      const seen = new Set(this.plugin.settings.profiles.map((p) => p.handle.toLowerCase()));
-      let added = 0;
-      for (const line of ta.value.split('\n')) {
-        const raw = line.trim();
-        if (!raw) continue;
-        const handle = (handleFromUrl(raw) || raw.replace(/^@/, '')).split(/[/?]/)[0];
-        if (!handle || seen.has(handle.toLowerCase())) continue;
-        seen.add(handle.toLowerCase());
-        this.plugin.settings.profiles.push({ handle, timeline: '', note: `@${handle}`, tags: '', enabled: true });
-        added++;
-      }
-      await this.plugin.saveSettings();
-      this.close();
-      new Notice(`Added ${added} profiles.`, 6000);
-      this.onDone();
-    };
-  }
-}
-
 /* ---------------- settings tab ---------------- */
 
 class ArchXSettingTab extends PluginSettingTab {
@@ -994,7 +1029,9 @@ class ArchXSettingTab extends PluginSettingTab {
       .setName('gallery-dl')
       .setDesc(s.galleryDlPath)
       .addButton((b) => b.setButtonText('Check setup').onClick(() => this.plugin.setup()))
-      .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()));
+      .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()))
+      .addButton((b) => b.setButtonText('Sync everything').setCta()
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncAll())));
 
     new Setting(containerEl)
       .setName('Reset templates and folders')
@@ -1006,13 +1043,82 @@ class ArchXSettingTab extends PluginSettingTab {
         this.display();
       }));
 
-    containerEl.createEl('h3', { text: `Profiles (${s.profiles.length})` });
+    // ---- the long tail: text, not rows ----
+    const bulk = this.plugin.bulkProfiles();
+    containerEl.createEl('h3', { text: `Bulk list (${bulk.length})` });
+    containerEl.createEl('p', {
+      text: 'One handle per line — @handle or a full x.com URL. Lines starting with # are ignored, so you can keep notes in here. Every profile in this list shares the options below.',
+      cls: 'setting-item-description',
+    });
+
+    // Hundreds of rows is what made this tab unusable, so the list is a single
+    // textarea behind a disclosure that remembers whether it was open.
+    const details = containerEl.createEl('details');
+    details.open = !!s.bulkOpen;
+    details.createEl('summary', { text: bulk.length ? `Show the list (${bulk.length} profiles)` : 'Show the list (empty)' });
+    details.addEventListener('toggle', async () => { s.bulkOpen = details.open; await save(); });
+
+    const ta = details.createEl('textarea');
+    ta.value = s.bulkList || '';
+    ta.rows = 16;
+    ta.spellcheck = false;
+    ta.style.width = '100%';
+    ta.style.fontFamily = 'var(--font-monospace)';
+    let typing = null;
+    ta.addEventListener('input', () => {
+      // Debounced: saving on every keystroke of a 300-line list is pointless
+      // work, and re-rendering the tab mid-edit would steal focus.
+      clearTimeout(typing);
+      typing = setTimeout(async () => { s.bulkList = ta.value; await save(); }, 400);
+    });
+    ta.addEventListener('blur', async () => { s.bulkList = ta.value; await save(); this.display(); });
+
+    new Setting(containerEl).setName('Timeline for the bulk list')
+      .addDropdown((d) => d.addOptions({ '': 'Use the default below', posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
+        .setValue(s.bulkTimeline).onChange(async (v) => { s.bulkTimeline = v; await save(); }));
+    new Setting(containerEl).setName('Posts per profile for the bulk list')
+      .setDesc('Blank uses the default below.')
+      .addText((t) => t.setPlaceholder('default').setValue(String(s.bulkMaxPerProfile ?? ''))
+        .onChange(async (v) => { s.bulkMaxPerProfile = v.trim(); await save(); }));
+    new Setting(containerEl).setName('Tags for the bulk list')
+      .setDesc('Blank uses the default post tags.')
+      .addText((t) => t.setPlaceholder('default').setValue(s.bulkTags)
+        .onChange(async (v) => { s.bulkTags = v.trim(); await save(); }));
 
     new Setting(containerEl)
-      .setName('Add profiles')
-      .setDesc('Paste a list — handles or URLs, one per line.')
-      .addButton((b) => b.setButtonText('Paste a list').setCta().onClick(() => new BulkAddModal(this.app, this.plugin, () => this.display()).open()))
-      .addButton((b) => b.setButtonText('Sync all now').onClick(() => this.plugin.enqueue(() => this.plugin.syncAll())));
+      .setName('Run the bulk list')
+      .addButton((b) => b.setButtonText(`Sync ${bulk.length}`).setCta()
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list'))))
+      .addButton((b) => b.setButtonText('Profile notes only')
+        .setTooltip('Fetch each profile note and its images, and write no posts')
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list', { profileOnly: true }))));
+
+    // ---- the few that need their own settings ----
+    containerEl.createEl('h3', { text: `Individual profiles (${s.profiles.length})` });
+    containerEl.createEl('p', {
+      text: 'For accounts you want to sync on their own, or that need different options from the bulk list. A handle in both lists is synced once, using the row.',
+      cls: 'setting-item-description',
+    });
+
+    let pending = '';
+    new Setting(containerEl)
+      .setName('Add a profile')
+      .addText((t) => t.setPlaceholder('@handle or x.com URL').onChange((v) => { pending = v.trim(); }))
+      .addButton((b) => b.setButtonText('Add').onClick(async () => {
+        const { handleFromUrl } = this.plugin.lib();
+        const handle = (handleFromUrl(pending) || pending.replace(/^@/, '')).split(/[/?]/)[0];
+        if (!handle) return new Notice('That is not a usable handle.', 5000);
+        if (s.profiles.some((p) => p.handle.toLowerCase() === handle.toLowerCase())) {
+          return new Notice(`@${handle} is already a row.`, 5000);
+        }
+        s.profiles.push({ handle, timeline: '', note: `@${handle}`, tags: '', enabled: true });
+        await save();
+        this.display();
+      }))
+      .addButton((b) => b.setButtonText('Sync rows').setCta()
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles'))))
+      .addButton((b) => b.setButtonText('Profile notes only')
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles', { profileOnly: true }))));
 
     const list = containerEl.createDiv();
     list.style.maxHeight = '320px';
@@ -1020,15 +1126,29 @@ class ArchXSettingTab extends PluginSettingTab {
     s.profiles.forEach((p, i) => {
       new Setting(list)
         .setName(`@${p.handle}`)
-        .addToggle((t) => t.setTooltip('Include in Sync all').setValue(p.enabled !== false)
+        .addToggle((t) => t.setTooltip('Include when syncing rows').setValue(p.enabled !== false)
           .onChange(async (v) => { p.enabled = v; await save(); }))
         .addDropdown((d) => d.addOptions({ '': 'Default timeline', posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
           .setValue(p.timeline || '').onChange(async (v) => { p.timeline = v; await save(); }))
+        .addButton((b) => b.setIcon('user').setTooltip('Profile note only, no posts')
+          .onClick(() => this.plugin.enqueue(async () => {
+            await this.plugin.syncProfile(p, { profileOnly: true });
+            new Notice(`Profile note for @${p.handle} written.`, 6000);
+          })))
         .addButton((b) => b.setIcon('refresh-cw').setTooltip('Sync this profile')
           .onClick(() => this.plugin.enqueue(async () => {
             const n = await this.plugin.syncProfile(p);
             new Notice(`${n} new notes from @${p.handle}.`, 6000);
           })))
+        .addButton((b) => b.setIcon('list-plus').setTooltip('Move to the bulk list')
+          .onClick(async () => {
+            const lines = String(s.bulkList || '').split('\n').filter((l) => l.trim());
+            lines.push(p.handle);
+            s.bulkList = lines.join('\n');
+            s.profiles.splice(i, 1);
+            await save();
+            this.display();
+          }))
         .addButton((b) => b.setIcon('trash').setTooltip('Remove')
           .onClick(async () => { s.profiles.splice(i, 1); await save(); this.display(); }));
     });

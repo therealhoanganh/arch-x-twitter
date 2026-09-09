@@ -8,6 +8,29 @@
 
 
 
+
+## 0.10.0 — unreleased
+
+- **Profiles are now two lists.** A handful of accounts keep their own row with
+  their own options; the long tail lives in a textarea sharing one set of
+  options. Hundreds of rows made the settings tab slow to open and impossible to
+  search, and there is nothing per-profile worth configuring for most of them.
+- The bulk list is behind a disclosure that remembers whether it was open, saves
+  on a debounce rather than per keystroke, and re-renders only on blur.
+- It accepts `@handle`, a bare handle or a full URL, and ignores blank lines and
+  lines starting with `#`, so the list can carry its own notes.
+- A handle in both lists is synced once; the row wins, since it carries the
+  deliberate settings.
+- Rows gain a **move to the bulk list** button, so promoting and demoting an
+  account is one click.
+- **Profile notes can be created without archiving any posts** — a button in each
+  section and a per-row one, plus a command. Adding someone so you can link to
+  them should not mean archiving their timeline. The download archive is skipped
+  in that mode so a later real sync does not miss the post that was fetched for
+  its author block.
+- New commands: sync individual only, sync the bulk list only, create profile
+  notes only.
+
 ## 0.9.0 — unreleased
 
 - **Template and folder changes now actually reach a vault that has already run

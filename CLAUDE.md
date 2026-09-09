@@ -319,6 +319,40 @@ defaults instead. Both behaviours are defensible; the migration is right for
 someone with an established archive and wrong for someone who wants the new
 layout, and there is no way to tell those apart from inside `loadSettings`.
 
+## Two lists, and why
+
+`profiles` is a handful of accounts that each get a **row**: their own timeline,
+their own tags, their own sync button. `bulkList` is the long tail — hundreds of
+handles in a **textarea**, sharing one set of options.
+
+One row per profile does not survive the intended scale. A few hundred `Setting`
+objects makes the settings tab slow to open and impossible to search, and there
+is nothing per-profile worth configuring for most of them. So the many live as
+text and the few that need settings stay as rows.
+
+The textarea is behind a `<details>` that remembers whether it was open, saves on
+a 400ms debounce rather than per keystroke, and only re-renders the tab on blur —
+re-rendering mid-edit steals focus, and saving a 300-line list on every keystroke
+is pointless work.
+
+`bulkList` tolerates `@handle`, a bare handle, or a full URL, skips blank lines,
+and **ignores lines starting with `#`** so the list can carry its own notes.
+
+**A handle in both lists is synced once, and the row wins**, because the row is
+the one carrying deliberate settings. `allProfiles()` is where that is decided.
+
+## Adding a profile without syncing posts
+
+`syncProfile(profile, { profileOnly: true })` writes the profile note and its
+images and no post notes. It exists because adding an account used to mean
+archiving at least one post, which is not what "add this person so I can link to
+them" means.
+
+X exposes no account-details endpoint through gallery-dl, so **one post is still
+fetched** — the author block rides along on every row — it is simply not written.
+The download archive is deliberately **skipped** in that mode: recording that post
+as seen would make a later real sync silently miss it.
+
 ## Rate limiting, which is the real constraint
 
 X rate-limits an authenticated session aggressively, and 150 profiles is a lot of
