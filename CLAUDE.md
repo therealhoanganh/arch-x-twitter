@@ -267,6 +267,36 @@ written at that position; one that is not is appended after the ordered part. An
 existing non-empty body is preserved as-is — a bio refresh is worth less than
 whatever a human wrote under it.
 
+## Saved settings shadow defaults, and that made four rounds of work invisible
+
+`this.settings = Object.assign({}, DEFAULT_SETTINGS, saved)` means **saved wins**.
+So changing a default in `DEFAULT_SETTINGS` changes nothing for any vault that has
+already run the plugin — which is every vault that matters.
+
+This is not theoretical and it is not new: ARCH After Clipping's changelog records
+the same trap. Here it swallowed the slimmed profile template, the slimmed post
+template, `shared-by`, the tag rename and the folder layout, all at once. On disk
+the code was right, in the vault nothing changed, and the obvious conclusion —
+"the update is not being applied" — was wrong. The update was applied; the
+settings were overriding it.
+
+`TEMPLATE_SETTINGS` names the settings that describe **what the plugin writes**
+rather than a preference someone tuned: the two order strings, the folder modes
+and folders, the image naming, the tags, the link styles. `settingsVersion` is
+bumped whenever those change, and `loadSettings` resets exactly that list once per
+bump. Profiles, cookies, rate limits and binary paths are never touched, and
+there is a **Reset templates and folders** button in settings for doing it by
+hand.
+
+**Do not fix this by editing `data.json` while Obsidian is running.** A running
+plugin holds the whole settings object in memory and writes it back on any save,
+so a hand-edited file is silently reverted — and, because migrations now persist,
+reverted to values a *stale* copy of the code produced. That wasted a full round
+of debugging. Edit settings through the settings tab, or quit Obsidian first.
+
+`loadSettings` logs the resolved profile folder and both templates on every load,
+so what is actually in force is visible in the console rather than inferred.
+
 ## Settings migrations must persist
 
 `loadSettings` compares the settings it built against what was on disk and saves

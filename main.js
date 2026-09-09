@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
   // Each entry: { handle, timeline, note, tags, enabled }
   profiles: [],
   timeline: 'posts',        // posts | replies | media | likes
-  retweets: false,
+  retweets: true,
   replies: false,
   quoted: true,
   textTweets: true,
@@ -72,7 +72,25 @@ const DEFAULT_SETTINGS = {
   extraArgs: '',
 
   setupDone: false,
+
+  // Bumped whenever the note templates or folder layout change in a way that a
+  // saved config must not shadow. See resetTemplateSettings.
+  settingsVersion: 2,
 };
+
+// Settings that describe WHAT THE PLUGIN WRITES rather than a preference the
+// user tuned. A saved copy of these predating a template change is a leftover,
+// not a choice, and `Object.assign(defaults, saved)` lets it shadow every new
+// default silently -- which is exactly how several rounds of template changes
+// appeared to do nothing at all.
+const TEMPLATE_SETTINGS = [
+  'profileNoteOrder', 'postNoteOrder',
+  'archiveRoot', 'profileLocationMode', 'profileSubfolder', 'profileFolder',
+  'postLocationMode', 'postSubfolder', 'postFolder',
+  'profileImageLocationMode', 'profileImageSubfolder', 'profileImageFolder',
+  'iconNameTemplate', 'bannerNameTemplate',
+  'tags', 'profileTags', 'urlAsLink', 'authorAsLink',
+];
 
 class ArchXArchivePlugin extends Plugin {
   async onload() {
@@ -817,12 +835,34 @@ class ArchXArchivePlugin extends Plugin {
       this.settings[key] = list.join(', ');
     }
 
+    // A saved copy of the template settings shadows every new default. Reset
+    // them once per settingsVersion bump, so a template change actually reaches
+    // a vault that has been running this plugin -- which is every vault that
+    // matters. Preferences the user really did tune (profiles, cookies, limits,
+    // paths to binaries) are untouched.
+    if ((saved.settingsVersion || 0) < DEFAULT_SETTINGS.settingsVersion) {
+      this.resetTemplateSettings();
+      this.settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
+      this.log('templates and folders reset to the', DEFAULT_SETTINGS.settingsVersion, 'defaults');
+    }
+
     // Migrations run in memory. Without this they re-run on every load and, worse,
     // never reach data.json -- so the settings tab shows one thing and the file
     // says another until something unrelated triggers a save.
     if (JSON.stringify(this.settings) !== before) await this.saveData(this.settings);
+
+    this.log('writing profile notes to', this.profileFolderFor({ handle: 'example' }));
+    this.log('profile template:', this.settings.profileNoteOrder);
+    this.log('post template:', this.settings.postNoteOrder);
     if (!Array.isArray(this.settings.tags)) this.settings.tags = [];
     if (!Array.isArray(this.settings.profileTags)) this.settings.profileTags = [];
+  }
+
+  resetTemplateSettings() {
+    for (const key of TEMPLATE_SETTINGS) {
+      const value = DEFAULT_SETTINGS[key];
+      this.settings[key] = Array.isArray(value) ? value.slice() : value;
+    }
   }
 
   async saveSettings() { await this.saveData(this.settings); }
@@ -955,6 +995,16 @@ class ArchXSettingTab extends PluginSettingTab {
       .setDesc(s.galleryDlPath)
       .addButton((b) => b.setButtonText('Check setup').onClick(() => this.plugin.setup()))
       .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()));
+
+    new Setting(containerEl)
+      .setName('Reset templates and folders')
+      .setDesc('Puts the note templates, folder layout, tags and link style back to this version\'s defaults. Profiles, cookies and limits are untouched.')
+      .addButton((b) => b.setWarning().setButtonText('Reset').onClick(async () => {
+        this.plugin.resetTemplateSettings();
+        await save();
+        new Notice('Templates and folders reset to defaults.', 6000);
+        this.display();
+      }));
 
     containerEl.createEl('h3', { text: `Profiles (${s.profiles.length})` });
 

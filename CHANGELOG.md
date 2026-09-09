@@ -7,6 +7,22 @@
 
 
 
+
+## 0.9.0 — unreleased
+
+- **Template and folder changes now actually reach a vault that has already run
+  the plugin.** Saved settings shadow defaults, so every template change since
+  0.4.0 — the slimmed profile and post templates, `shared-by`, the tag rename,
+  the `Twitter/` layout — was being silently overridden by an old `data.json`.
+  The code was right; the settings were winning.
+- `TEMPLATE_SETTINGS` names the settings that describe what the plugin writes
+  rather than a preference someone tuned, and `settingsVersion` resets exactly
+  those once per bump. Profiles, cookies, limits and binary paths are untouched.
+- New **Reset templates and folders** button in settings, for doing it by hand.
+- `loadSettings` now logs the resolved profile folder and both templates, so what
+  is in force is visible rather than inferred.
+- `retweets` now defaults to on.
+
 ## 0.8.1 — unreleased
 
 - **Reloading the plugin now actually reloads `lib/`.** Electron's `require()`
