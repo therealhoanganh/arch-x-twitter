@@ -1,6 +1,6 @@
 'use strict';
 
-const { Plugin, PluginSettingTab, Setting, Notice, Modal, TFile, TFolder, normalizePath } = require('obsidian');
+const { Plugin, PluginSettingTab, Setting, Notice, Modal, TFile, TFolder, normalizePath, requestUrl } = require('obsidian');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -34,7 +34,19 @@ const DEFAULT_SETTINGS = {
   tags: ['x-post'],
   profileTags: ['x-profile'],
   postNoteOrder: 'dl-ed, url, x-author, x-name, x-post-id, published, x-profile, media, likes, reposts, replies, tags',
-  profileNoteOrder: 'url, x-author, x-name, followers, posts, joined, count, x-synced, tags',
+  profileNoteOrder: 'url, icon, banner, x-author, x-name, followers, posts, joined, count, x-synced, tags',
+
+  // --- profile picture and header ---
+  // The defaults reproduce the layout the hand-made notes already use:
+  // Twitter/Profiles/Images, named "@handle Icon.webp" / "@handle Banner.webp".
+  downloadProfileImages: true,
+  profileImageLocationMode: 'subfolder', // vault | same | subfolder | specified | perProfile
+  profileImageSubfolder: 'Images',
+  profileImageFolder: 'Twitter/Profiles/Images',
+  profileImageFormat: 'webp',            // webp | keep
+  iconNameTemplate: '{{author}} Icon',
+  bannerNameTemplate: '{{author}} Banner',
+  refreshProfileImages: false,
 
   // --- media ---
   downloadMedia: true,
@@ -406,6 +418,110 @@ class ArchXArchivePlugin extends Plugin {
 
   archivePath() { return path.join(this.pluginDir(), 'seen.sqlite3'); }
 
+
+  /* ---------------- profile picture and header ---------------- */
+
+  // Returns { icon, banner } as embed strings ready for frontmatter, '' for
+  // anything not downloaded. A failure here never fails the sync: a missing
+  // avatar is not a reason to lose a profile's posts.
+  async fetchProfileImages(profile, meta, profileFolder) {
+    if (!this.settings.downloadProfileImages) return { icon: '', banner: '' };
+    const { profileImageUrls } = this.lib();
+    const urls = profileImageUrls(meta);
+    if (!urls.icon && !urls.banner) {
+      this.log('no profile image urls in metadata for', profile.handle);
+      return { icon: '', banner: '' };
+    }
+
+    const folder = this.imageFolderFor(profile, profileFolder);
+    if (folder) await this.ensureFolder(folder);
+
+    const out = {};
+    for (const [key, url, template] of [
+      ['icon', urls.icon, this.settings.iconNameTemplate],
+      ['banner', urls.banner, this.settings.bannerNameTemplate],
+    ]) {
+      out[key] = '';
+      if (!url) continue;
+      try {
+        const file = await this.saveProfileImage(url, folder, this.imageStem(template, profile));
+        if (file) out[key] = this.embedFor(file, profileFolder, key === 'icon' ? 'Icon' : 'Banner');
+      } catch (e) {
+        this.log(`${key} failed for @${profile.handle}:`, e.message);
+      }
+    }
+    return out;
+  }
+
+  imageStem(template, profile) {
+    const { sanitizeName } = this.lib();
+    return sanitizeName(
+      String(template || '{{author}}')
+        .replace(/\{\{author\}\}/gi, `@${profile.handle}`)
+        .replace(/\{\{handle\}\}/gi, profile.handle),
+      `@${profile.handle}`
+    );
+  }
+
+  // Whether an image is already here is decided by LOOKING FOR THE FILE, under
+  // any extension it might have been saved with -- never by a property. Same
+  // discipline as ARCH YT Playlists' download check, and the reason a re-sync of
+  // 150 profiles does not re-fetch 300 images.
+  existingImage(folder, stem) {
+    for (const ext of ['.webp', '.jpg', '.jpeg', '.png', '.gif']) {
+      const hit = this.app.vault.getAbstractFileByPath(normalizePath(folder ? `${folder}/${stem}${ext}` : `${stem}${ext}`));
+      if (hit instanceof TFile) return hit;
+    }
+    return null;
+  }
+
+  async saveProfileImage(url, folder, stem) {
+    const existing = this.existingImage(folder, stem);
+    if (existing && !this.settings.refreshProfileImages) return existing;
+
+    // requestUrl rather than fetch: it is Obsidian's own client, so it is not
+    // subject to the renderer's CORS rules and follows redirects.
+    const res = await requestUrl({ url, throw: false });
+    if (res.status !== 200 || !res.arrayBuffer || !res.arrayBuffer.byteLength) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const type = (res.headers && (res.headers['content-type'] || res.headers['Content-Type'])) || 'image/jpeg';
+    let bytes = new Uint8Array(res.arrayBuffer);
+    let ext = extFromType(type, url);
+
+    if (this.settings.profileImageFormat === 'webp' && ext !== '.webp') {
+      try {
+        const { encodeWebp } = this.lib();
+        const encoded = await encodeWebp(new Blob([res.arrayBuffer], { type }), 0.85);
+        if (encoded.data) { bytes = encoded.data; ext = '.webp'; }
+      } catch (e) {
+        // A profile picture in a format Chromium will not decode is not worth
+        // failing over; the original is perfectly usable.
+        this.log('webp encode failed, keeping the original:', e.message);
+      }
+    }
+
+    const target = normalizePath(folder ? `${folder}/${stem}${ext}` : `${stem}${ext}`);
+    const already = this.app.vault.getAbstractFileByPath(target);
+    if (already instanceof TFile) {
+      await this.app.vault.modifyBinary(already, bytes);
+      return already;
+    }
+    await this.app.vault.createBinary(target, bytes);
+    const created = this.app.vault.getAbstractFileByPath(target);
+    return created instanceof TFile ? created : null;
+  }
+
+  // Matches what the hand-made notes carry: an aliased wikilink, so the property
+  // renders as an image and reads as a word.
+  embedFor(file, fromFolder, alias) {
+    let link = file.path;
+    try {
+      link = this.app.metadataCache.fileToLinktext(file, fromFolder ? `${fromFolder}/x.md` : 'x.md', true);
+    } catch (_) { /* fall back to the full path */ }
+    return `[[${link}|${alias}]]`;
+  }
+
   /* ---------------- note writing ---------------- */
 
   // Tokens usable in either folder setting. `{{handle}}` is the one that matters;
@@ -469,6 +585,27 @@ class ArchXArchivePlugin extends Plugin {
     }
   }
 
+  // Anchored on the profile note, like post notes are. The default -- subfolder
+  // "Images" beside the profile note -- resolves to Twitter/Profiles/Images.
+  imageFolderFor(profile, profileFolder) {
+    const { sanitizeName } = this.lib();
+    const s = this.settings;
+    const handle = sanitizeName('@' + profile.handle);
+    switch (s.profileImageLocationMode) {
+      case 'vault': return '';
+      case 'same': return profileFolder;
+      case 'specified': return this.expandFolderTokens(s.profileImageFolder, profile);
+      case 'perProfile': {
+        const base = this.expandFolderTokens(s.profileImageFolder, profile);
+        return [base, handle].filter(Boolean).join('/');
+      }
+      default: {
+        const sub = this.expandFolderTokens(s.profileImageSubfolder, profile);
+        return [profileFolder, sub].filter(Boolean).join('/');
+      }
+    }
+  }
+
   async folderFor(profile) {
     const folder = this.profileFolderFor(profile);
     await this.ensureFolder(folder);
@@ -481,7 +618,10 @@ class ArchXArchivePlugin extends Plugin {
     const meta = first ? first.meta : { user: { name: profile.handle } };
     const name = sanitizeName(profile.note || `@${profile.handle}`);
     const notePath = normalizePath(`${folder}/${name}.md`);
+    const images = await this.fetchProfileImages(profile, meta, folder);
     const body = renderProfile(meta, {
+      icon: images.icon,
+      banner: images.banner,
       tags: splitList(profile.tags || this.settings.profileTags.join(', ')),
       count: posts.length,
       syncedAt: new Date().toISOString().slice(0, 19) + 'Z',
@@ -605,6 +745,16 @@ class ArchXArchivePlugin extends Plugin {
 }
 
 /* ---------------- helpers ---------------- */
+
+function extFromType(type, url) {
+  const t = String(type || '').toLowerCase();
+  if (t.includes('webp')) return '.webp';
+  if (t.includes('png')) return '.png';
+  if (t.includes('gif')) return '.gif';
+  if (t.includes('jpeg') || t.includes('jpg')) return '.jpg';
+  const fromUrl = String(url || '').match(/\.(webp|png|gif|jpe?g)(?:[?#]|$)/i);
+  return fromUrl ? `.${fromUrl[1].toLowerCase().replace('jpeg', 'jpg')}` : '.jpg';
+}
 
 function splitList(raw) {
   if (Array.isArray(raw)) return raw;
@@ -831,6 +981,51 @@ class ArchXSettingTab extends PluginSettingTab {
       .addText((t) => t.setValue(s.tags.join(', ')).onChange(async (v) => { s.tags = splitList(v); await save(); }));
     new Setting(containerEl).setName('Profile tags')
       .addText((t) => t.setValue(s.profileTags.join(', ')).onChange(async (v) => { s.profileTags = splitList(v); await save(); }));
+
+    containerEl.createEl('h3', { text: 'Profile picture and header' });
+
+    new Setting(containerEl).setName('Download the icon and banner')
+      .setDesc('Saved beside the profile note and written into its icon and banner properties. The URLs come free with the metadata, so this costs two downloads per profile and no extra API calls.')
+      .addToggle((t) => t.setValue(s.downloadProfileImages).onChange(async (v) => { s.downloadProfileImages = v; await save(); this.display(); }));
+
+    if (s.downloadProfileImages) {
+      new Setting(containerEl).setName('Where the images go')
+        .addDropdown((d) => d.addOptions({
+          subfolder: 'Subfolder beside the profile note',
+          same: 'Same folder as the profile note',
+          specified: 'One folder',
+          perProfile: 'A folder per profile',
+          vault: 'Vault root',
+        }).setValue(s.profileImageLocationMode).onChange(async (v) => { s.profileImageLocationMode = v; await save(); this.display(); }));
+
+      if (s.profileImageLocationMode === 'subfolder') {
+        new Setting(containerEl).setName('Image subfolder').setDesc(TOKENS)
+          .addText((t) => t.setValue(s.profileImageSubfolder).onChange(async (v) => { s.profileImageSubfolder = v.trim(); await save(); }));
+      }
+      if (s.profileImageLocationMode === 'specified' || s.profileImageLocationMode === 'perProfile') {
+        new Setting(containerEl).setName('Image folder').setDesc(TOKENS)
+          .addText((t) => t.setValue(s.profileImageFolder).onChange(async (v) => { s.profileImageFolder = v.trim(); await save(); }));
+      }
+
+      new Setting(containerEl).setName('Icon file name').setDesc('Tokens: {{author}} {{handle}}')
+        .addText((t) => t.setValue(s.iconNameTemplate).onChange(async (v) => { s.iconNameTemplate = v; await save(); }));
+      new Setting(containerEl).setName('Banner file name').setDesc('Tokens: {{author}} {{handle}}')
+        .addText((t) => t.setValue(s.bannerNameTemplate).onChange(async (v) => { s.bannerNameTemplate = v; await save(); }));
+
+      new Setting(containerEl).setName('Convert to WebP')
+        .setDesc('X serves JPEG. WebP is roughly half the size. An image that would come out larger keeps its original format.')
+        .addDropdown((d) => d.addOptions({ webp: 'Convert to WebP', keep: 'Keep what X serves' })
+          .setValue(s.profileImageFormat).onChange(async (v) => { s.profileImageFormat = v; await save(); }));
+
+      new Setting(containerEl).setName('Re-download on every sync')
+        .setDesc('Off means an image already on disk is left alone, which is what makes a re-run of every profile cheap. Turn it on once to pick up changed avatars, then turn it off.')
+        .addToggle((t) => t.setValue(s.refreshProfileImages).onChange(async (v) => { s.refreshProfileImages = v; await save(); }));
+
+      const sampleP = { handle: 'example' };
+      const pf2 = this.plugin.profileFolderFor(sampleP);
+      new Setting(containerEl).setName('For @example, that is')
+        .setDesc(`${this.plugin.imageFolderFor(sampleP, pf2) || '(vault root)'}/${this.plugin.imageStem(s.iconNameTemplate, sampleP)}.webp`);
+    }
 
     containerEl.createEl('h3', { text: 'Access' });
 

@@ -1,5 +1,30 @@
 # Changelog
 
+
+## 0.3.0 — unreleased
+
+- **The profile picture and header are downloaded**, saved beside the profile
+  note and written into its `icon` and `banner` properties as aliased wikilinks.
+  Defaults reproduce the layout the hand-made notes already use:
+  `Twitter/Profiles/Images/@handle Icon.webp` and `… Banner.webp`.
+- The URLs come free — gallery-dl's metadata carries `profile_image` and
+  `profile_banner` on every row — so this costs two downloads per profile and no
+  extra API calls.
+- Where the images go is a five-mode setting like the others, anchored on the
+  profile note. File names are templates.
+- Downloaded JPEG is converted to WebP, roughly halving it. An image that would
+  come out larger keeps its original format.
+- **An image already on disk is left alone**, found by looking for the file under
+  any extension rather than by trusting a property or assuming `.webp` — one
+  existing profile has a `.png` icon. `refreshProfileImages`, off by default,
+  forces a re-download.
+- A failed image never fails the sync.
+
+Two measured details that are easy to get wrong: `profile_image` is already the
+full-size URL, and `profile_banner` is a base URL that needs `/1500x500`
+appended — the bare form returns 200 and a small image, so the mistake shows up
+as a blurry header, not an error.
+
 ## 0.2.0 — unreleased
 
 - **Note folders now use the five-mode dropdown the other ARCH plugins use**,

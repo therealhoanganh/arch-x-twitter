@@ -202,13 +202,7 @@ tags:
 
 Four differences from what `renderProfile` writes, none of them yet reconciled:
 
-- **`icon` and `banner` are downloaded images**, embedded as wikilinks with an
-  alias, named `@handle Icon.webp` / `@handle Banner.webp` and kept in
-  `Twitter/Profiles/Images/`. The plugin downloads nothing at all today. The URLs
-  are already in hand — gallery-dl's twitter metadata carries `profile_image` and
-  `profile_banner` on every row, so no extra request is needed to find them.
-  Note `profile_image` is the small variant; the full-size one is that URL with
-  `_normal` stripped from the filename.
+- **`icon` and `banner`** — **built, see below.**
 - **`url` is a markdown link**, `"[Link](https://x.com/karpathy)"`, not a bare
   URL. Anything parsing `url` back out has to cope with both forms.
 - **`t-rank`** is a hand-assigned ranking. A sync must never overwrite it, which
@@ -219,6 +213,46 @@ The frontmatter *order* settings already exist, so matching this is mostly a
 matter of names, plus the image download. Do not "fix" the plugin's defaults to
 match this template without checking: the archiving strategy these notes feed has
 not been decided yet, and that decision drives the template.
+
+## Profile picture and header
+
+Downloaded on every sync, written into the note's `icon` and `banner` properties
+as aliased wikilinks, matching the hand-made notes exactly. Defaults put them in
+`Twitter/Profiles/Images` as `@handle Icon.webp` / `@handle Banner.webp` — the
+same names the 27 existing notes use, so a first sync of those profiles reuses
+what is already on disk and downloads nothing.
+
+**The URLs cost nothing.** gallery-dl's metadata carries `profile_image` and
+`profile_banner` on every row, so no extra request is needed to find them. Two
+measured details, both in `profileImageUrls()`:
+
+- `profile_image` is **already** the full-size URL. gallery-dl strips the
+  `_normal` suffix itself — that variant is a 1.8 KB thumbnail against 25 KB for
+  the real one. The strip in the code is belt-and-braces for any extractor that
+  does not. *(An earlier version of this file claimed the opposite. It was wrong.)*
+- `profile_banner` is a **base** URL and serves a small image on its own: 21 KB
+  bare, 81 KB with `/1500x500` appended. **Both return 200**, so getting this
+  wrong fails silently as a blurry header rather than as an error.
+
+**Whether an image is already here is decided by looking for the file**, under
+any extension it might carry — not by a property, and not by assuming `.webp`.
+One of the existing profiles has a `.png` icon where every other has `.webp`;
+checking only the target extension would re-download it on every sync forever.
+Same discipline as ARCH YT Playlists' download check, and the reason re-running
+150 profiles does not re-fetch 300 images.
+
+`refreshProfileImages` exists to pick up a changed avatar and is **off** by
+default. It re-downloads all of them, which is the expensive path.
+
+A failure here never fails the sync — a missing avatar is not a reason to lose a
+profile's posts — so each image is caught separately and logged.
+
+`requestUrl` is used rather than `fetch`: it is Obsidian's own client, so it is
+not subject to the renderer's CORS rules and follows redirects.
+
+`lib/image.js` is the one file in `lib/` that **cannot run under plain Node** — it
+uses `OffscreenCanvas`, which exists only in the renderer. Requiring it there is
+fine; calling `encodeWebp` is not.
 
 ## The test vault, and one piece of stale state
 
