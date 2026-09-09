@@ -203,6 +203,45 @@ So a reposted note reads `x-author: [[@AnthropicAI]]` — who wrote it — besid
 one click away in the profile note. It remains the only After Clipping marker on **profile**
 notes, where `x-author` was dropped.
 
+## A repost is two tweets, and mixing them up is silent
+
+On a repost, gallery-dl hands over **two different tweets** in one row:
+
+```
+tweet_id    the repost itself, owned by whoever reposted
+retweet_id  the ORIGINAL, owned by `author`
+user        the reposter          author  the original writer
+```
+
+Building `x.com/<author>/status/<tweet_id>` pairs one account's handle with
+another's id. **It does not fail.** X returns 307 and redirects to
+`x.com/<reposter>/status/<tweet_id>`, so the link works and quietly takes you to
+the repost instead of the post. Verified by following the redirects:
+`x.com/SebastienBubeck/status/<tweet_id>` bounces to Hesamation, while
+`x.com/SebastienBubeck/status/<retweet_id>` resolves directly.
+
+`canonicalId()` is the answer: `retweet_id` when there is one, `tweet_id`
+otherwise. It is used for the URL, for `x-post-id`, for the note name's `{{id}}`
+and — importantly — for **de-duplication**, so one original reposted by several
+archived profiles becomes **one note**, not one per reposter. Grouping in
+`groupByTweet` still keys on `tweet_id`, because that is what a post's media rows
+share; identity and grouping are different questions.
+
+**`retweet_id` is `0` on everything that is not a repost** — a *number* zero, not
+absent and not the string `"0"`. `quoteBigIds` only rewrites ids of 16 digits or
+more, so this one stays numeric while a real one becomes a string. Any check has
+to cope with both types, which is why it reads
+`rt && String(rt) !== '0'`.
+
+**A repost's `content` starts `RT @handle: `**, which repeats what `x-author` and
+`shared-by` already say — and it landed in the note's filename too. Stripped in
+`expandUrls`. The body keeps the original's full text, which gallery-dl expands
+for us.
+
+For scale: with `retweets` and `quoted` both on, **16 of 40** posts from one
+timeline were someone else's. Reposts are a large fraction of an archive, and
+`shared-by` is what makes them filterable rather than noise.
+
 ## The order setting is the whole template contract
 
 `postNoteOrder` and `profileNoteOrder` decide **what is written at all**, not just

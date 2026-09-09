@@ -5,6 +5,25 @@
 
 
 
+
+## 0.8.0 — unreleased
+
+Found by turning reposts on and following the links.
+
+- **A repost's URL pointed at the wrong tweet.** On a repost `tweet_id` is the
+  repost and `retweet_id` is the original, so `x.com/<author>/status/<tweet_id>`
+  paired one account's handle with another's id. X answered 307 and redirected to
+  the reposter, so the link worked and quietly went to the repost rather than the
+  post. `canonicalId()` now picks `retweet_id` when there is one; all five repost
+  URLs from a live timeline resolve directly with no redirect.
+- **De-duplication uses the original's id**, so one post reposted by several
+  archived profiles is one note rather than one per reposter. Grouping still keys
+  on `tweet_id`, which is what a post's media rows share.
+- **`RT @handle: ` is stripped from the body and the filename.** It repeated what
+  `x-author` and `shared-by` already say. The original's full text is kept.
+- Noted for anyone reading the metadata: `retweet_id` is a numeric `0` on
+  non-reposts, not absent, and not the string `"0"`.
+
 ## 0.7.0 — unreleased
 
 - **`x-profile` is now `shared-by`**, and it is written only when the post is not

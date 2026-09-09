@@ -663,11 +663,14 @@ class ArchXArchivePlugin extends Plugin {
   // alone: X counts change constantly, and rewriting 150 profiles' worth of
   // notes on every sync to update a like count would churn the whole vault.
   async writePostNote(post, profile, folder) {
-    const { renderPost, postNoteName } = this.lib();
+    const { renderPost, postNoteName, canonicalId } = this.lib();
     const name = postNoteName(post, this.settings.postNoteNameTemplate);
     const notePath = normalizePath(`${folder}/${name}.md`);
+    // canonicalId, not post.id: on a repost those differ, and de-duplicating on
+    // the repost's own id would file the same original once per reposter.
+    const identity = canonicalId(post.meta);
     if (this.app.vault.getAbstractFileByPath(notePath)) return false;
-    if (this.findByPostId(post.id)) return false;
+    if (this.findByPostId(identity)) return false;
 
     // `shared-by` only when this post is not the profile owner's own: the author
     // wrote it, this profile passed it on. Comparing handles case-insensitively
@@ -690,7 +693,7 @@ class ArchXArchivePlugin extends Plugin {
     });
     const created = await this.app.vault.create(notePath, body);
     // metadataCache has not seen the new note yet, so the index has to be told.
-    if (this.postIndex) this.postIndex.set(String(post.id), created);
+    if (this.postIndex) this.postIndex.set(identity, created);
     return true;
   }
 
