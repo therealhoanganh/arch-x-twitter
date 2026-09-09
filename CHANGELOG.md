@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 — unreleased
+
+- **Note folders now use the five-mode dropdown the other ARCH plugins use**,
+  once for profile notes and once for post notes, replacing the single
+  `archiveRoot` path and the per-profile-folder toggle. The anchor differs by
+  kind: a profile note is placed relative to the archive root, a post note
+  relative to its own profile note, so `same` and `subfolder` mean something for
+  posts. Both accept `{{handle}}`, `{{author}}`, `{{date}}`, `{{year}}` and
+  `{{month}}`.
+- Defaults are now `Twitter/Profiles` and `Twitter/Posts`.
+- The settings tab prints the resolved paths for a sample handle, because two
+  folder settings with five modes each is easy to get wrong silently.
+- A 0.1.0 config migrates: the old `archiveRoot` becomes the profile folder, the
+  per-profile toggle becomes `perProfile`, and post notes stay beside their
+  profile note.
+
+### Found by the first Obsidian run
+
+- **ARCH After Clipping processes every note this plugin writes.** It read each
+  post note's `url` and ran a yt-dlp metadata probe — ~3s per note — and
+  downloaded media into the profile folder. At 150 profiles that is tens of
+  thousands of unwanted probes. The fix is in After Clipping's settings, not
+  here: add `x-post-id` and `x-profile-id` to its `otherArchKeys`.
+
 ## 0.1.0 — unreleased
 
 First scaffold. Enumeration and note writing work and have been run against a

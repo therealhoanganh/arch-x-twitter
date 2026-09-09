@@ -20,8 +20,16 @@ const DEFAULT_SETTINGS = {
   sleepRequest: 1.5,        // seconds between requests; X rate-limits hard
 
   // --- where notes land ---
-  archiveRoot: 'X/Profiles',
-  profileNoteInOwnFolder: true,
+  // Both use the same five-mode vocabulary as the other ARCH plugins. The
+  // anchor differs: a profile note is placed relative to the archive root, a
+  // post note relative to its own profile note.
+  archiveRoot: 'Twitter',
+  profileLocationMode: 'specified', // vault | root | subfolder | specified | perProfile
+  profileSubfolder: 'Profiles',
+  profileFolder: 'Twitter/Profiles',
+  postLocationMode: 'specified',    // vault | same | subfolder | specified | perProfile
+  postSubfolder: 'Posts',
+  postFolder: 'Twitter/Posts',
   postNoteNameTemplate: '{{author}} — {{date}} — {{excerpt}}',
   tags: ['x-post'],
   profileTags: ['x-profile'],
@@ -371,12 +379,15 @@ class ArchXArchivePlugin extends Plugin {
     this.log(`@${profile.handle}: ${posts.length} posts`);
     if (!posts.length) return 0;
 
-    const folder = await this.folderFor(profile);
-    await this.writeProfileNote(profile, posts, folder);
+    const profileFolder = await this.folderFor(profile);
+    await this.writeProfileNote(profile, posts, profileFolder);
+
+    const postFolder = this.postFolderFor(profile, profileFolder);
+    if (postFolder !== profileFolder) await this.ensureFolder(postFolder);
 
     let written = 0;
     for (const post of posts) {
-      if (await this.writePostNote(post, profile, folder)) written++;
+      if (await this.writePostNote(post, profile, postFolder)) written++;
     }
     return written;
   }
@@ -397,12 +408,69 @@ class ArchXArchivePlugin extends Plugin {
 
   /* ---------------- note writing ---------------- */
 
-  async folderFor(profile) {
+  // Tokens usable in either folder setting. `{{handle}}` is the one that matters;
+  // the rest are there because a date-partitioned archive is the obvious next
+  // thing someone wants and adding them later would be a settings migration.
+  expandFolderTokens(raw, profile) {
     const { sanitizeName } = this.lib();
-    const root = this.settings.archiveRoot || 'X/Profiles';
-    const folder = this.settings.profileNoteInOwnFolder
-      ? `${root}/${sanitizeName('@' + profile.handle)}`
-      : root;
+    const now = new Date();
+    return String(raw || '')
+      .replace(/\\/g, '/')
+      .replace(/\{\{handle\}\}/gi, profile ? profile.handle : '')
+      .replace(/\{\{author\}\}/gi, profile ? `@${profile.handle}` : '')
+      .replace(/\{\{date\}\}/gi, now.toISOString().slice(0, 10))
+      .replace(/\{\{year\}\}/gi, String(now.getFullYear()))
+      .replace(/\{\{month\}\}/gi, String(now.getMonth() + 1).padStart(2, '0'))
+      .split('/')
+      .map((seg) => (seg === '.' || seg === '' ? '' : sanitizeName(seg, '')))
+      .filter(Boolean)
+      .join('/');
+  }
+
+  // A profile note is placed relative to the archive root.
+  profileFolderFor(profile) {
+    const { sanitizeName } = this.lib();
+    const s = this.settings;
+    const root = this.expandFolderTokens(s.archiveRoot, profile);
+    const handle = sanitizeName('@' + profile.handle);
+    switch (s.profileLocationMode) {
+      case 'vault': return '';
+      case 'root': return root;
+      case 'subfolder': {
+        const sub = this.expandFolderTokens(s.profileSubfolder, profile);
+        return [root, sub].filter(Boolean).join('/');
+      }
+      case 'perProfile': {
+        const base = this.expandFolderTokens(s.profileFolder, profile) || root;
+        return [base, handle].filter(Boolean).join('/');
+      }
+      default: return this.expandFolderTokens(s.profileFolder, profile) || root;
+    }
+  }
+
+  // A post note is placed relative to its own profile note, which is why
+  // `same` and `subfolder` mean something here and `root` does not.
+  postFolderFor(profile, profileFolder) {
+    const { sanitizeName } = this.lib();
+    const s = this.settings;
+    const handle = sanitizeName('@' + profile.handle);
+    switch (s.postLocationMode) {
+      case 'vault': return '';
+      case 'same': return profileFolder;
+      case 'subfolder': {
+        const sub = this.expandFolderTokens(s.postSubfolder, profile);
+        return [profileFolder, sub].filter(Boolean).join('/');
+      }
+      case 'perProfile': {
+        const base = this.expandFolderTokens(s.postFolder, profile);
+        return [base, handle].filter(Boolean).join('/');
+      }
+      default: return this.expandFolderTokens(s.postFolder, profile) || profileFolder;
+    }
+  }
+
+  async folderFor(profile) {
+    const folder = this.profileFolderFor(profile);
     await this.ensureFolder(folder);
     return folder;
   }
@@ -505,6 +573,16 @@ class ArchXArchivePlugin extends Plugin {
     const saved = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
     if (!Array.isArray(this.settings.profiles)) this.settings.profiles = [];
+    // 0.1.0 had a single archiveRoot plus a per-profile-folder toggle. Only
+    // migrate when there is a saved config predating the modes: on a fresh
+    // install `saved` is empty and running this would stomp the defaults.
+    if (Object.keys(saved).length && saved.profileLocationMode === undefined) {
+      const root = saved.archiveRoot || 'X/Profiles';
+      this.settings.profileLocationMode = saved.profileNoteInOwnFolder ? 'perProfile' : 'specified';
+      this.settings.profileFolder = root;
+      this.settings.postLocationMode = 'same';
+    }
+    delete this.settings.profileNoteInOwnFolder;
     if (!Array.isArray(this.settings.tags)) this.settings.tags = [];
     if (!Array.isArray(this.settings.profileTags)) this.settings.profileTags = [];
   }
@@ -683,10 +761,55 @@ class ArchXSettingTab extends PluginSettingTab {
 
     containerEl.createEl('h3', { text: 'Notes' });
 
-    new Setting(containerEl).setName('Archive folder')
+    const TOKENS = 'Tokens: {{handle}} {{author}} {{date}} {{year}} {{month}}';
+
+    new Setting(containerEl).setName('Archive root')
+      .setDesc('The folder the "archive root" modes below are relative to.')
       .addText((t) => t.setValue(s.archiveRoot).onChange(async (v) => { s.archiveRoot = v.trim(); await save(); }));
-    new Setting(containerEl).setName('A folder per profile')
-      .addToggle((t) => t.setValue(s.profileNoteInOwnFolder).onChange(async (v) => { s.profileNoteInOwnFolder = v; await save(); }));
+
+    new Setting(containerEl).setName('Where profile notes go')
+      .addDropdown((d) => d.addOptions({
+        specified: 'One folder',
+        perProfile: 'A folder per profile',
+        root: 'The archive root',
+        subfolder: 'Subfolder under the archive root',
+        vault: 'Vault root',
+      }).setValue(s.profileLocationMode).onChange(async (v) => { s.profileLocationMode = v; await save(); this.display(); }));
+
+    if (s.profileLocationMode === 'subfolder') {
+      new Setting(containerEl).setName('Profile subfolder').setDesc(TOKENS)
+        .addText((t) => t.setValue(s.profileSubfolder).onChange(async (v) => { s.profileSubfolder = v.trim(); await save(); }));
+    }
+    if (s.profileLocationMode === 'specified' || s.profileLocationMode === 'perProfile') {
+      new Setting(containerEl).setName('Profile folder').setDesc(TOKENS)
+        .addText((t) => t.setValue(s.profileFolder).onChange(async (v) => { s.profileFolder = v.trim(); await save(); }));
+    }
+
+    new Setting(containerEl).setName('Where post notes go')
+      .setDesc('"Same folder" and "Subfolder" are relative to the profile note.')
+      .addDropdown((d) => d.addOptions({
+        specified: 'One folder',
+        perProfile: 'A folder per profile',
+        same: 'Same folder as the profile note',
+        subfolder: 'Subfolder beside the profile note',
+        vault: 'Vault root',
+      }).setValue(s.postLocationMode).onChange(async (v) => { s.postLocationMode = v; await save(); this.display(); }));
+
+    if (s.postLocationMode === 'subfolder') {
+      new Setting(containerEl).setName('Post subfolder').setDesc(TOKENS)
+        .addText((t) => t.setValue(s.postSubfolder).onChange(async (v) => { s.postSubfolder = v.trim(); await save(); }));
+    }
+    if (s.postLocationMode === 'specified' || s.postLocationMode === 'perProfile') {
+      new Setting(containerEl).setName('Post folder').setDesc(TOKENS)
+        .addText((t) => t.setValue(s.postFolder).onChange(async (v) => { s.postFolder = v.trim(); await save(); }));
+    }
+
+    // Shows exactly where the next sync will put things. Two folder settings
+    // with five modes each is easy to get wrong silently.
+    const sample = { handle: 'example' };
+    const pf = this.plugin.profileFolderFor(sample);
+    new Setting(containerEl).setName('For @example, that is')
+      .setDesc(`Profile note: ${pf || '(vault root)'}/@example.md\nPost notes: ${this.plugin.postFolderFor(sample, pf) || '(vault root)'}/`);
     new Setting(containerEl).setName('Post note name')
       .setDesc('Tokens: {{author}} {{authorName}} {{date}} {{id}} {{excerpt}}')
       .addText((t) => t.setValue(s.postNoteNameTemplate).onChange(async (v) => { s.postNoteNameTemplate = v; await save(); }));

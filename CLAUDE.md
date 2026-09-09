@@ -99,13 +99,54 @@ constantly; refreshing them would rewrite the entire archive on every sync and
 make the vault's git history useless. Identity is `x-post-id`, not the filename,
 so changing the name template does not create duplicates.
 
+## Where notes go
+
+Two settings, each with the same five-mode dropdown the other ARCH plugins use
+for folders. The vocabulary is shared on purpose; the **anchor** is what differs:
+
+- A **profile note** is placed relative to the archive root, so its modes are
+  `vault | root | subfolder | specified | perProfile`.
+- A **post note** is placed relative to *its own profile note*, so `same` and
+  `subfolder` mean something there and `root` does not:
+  `vault | same | subfolder | specified | perProfile`.
+
+Defaults are `Twitter/Profiles` and `Twitter/Posts`. Both accept `{{handle}}`,
+`{{author}}`, `{{date}}`, `{{year}}` and `{{month}}`; the date tokens are
+evaluated at sync time, not from the post, because a folder that moved when an
+old post was backfilled would scatter one profile across several trees.
+
+The settings tab prints the resolved paths for a sample handle. Two folder
+settings with five modes each is easy to get wrong silently, and a wrong one
+writes hundreds of notes into the wrong place before anyone notices.
+
+## Coupling to ARCH After Clipping — READ THIS
+
+**After Clipping processes every note this plugin writes, and it is expensive.**
+Observed on the first Obsidian run: After Clipping picked up each new post note,
+read its `url` from raw frontmatter, and ran a full yt-dlp metadata probe against
+`x.com/<user>/status/<id>` — about **3 seconds per note** — then actually
+downloaded a video and extracted an mp3 into `X/Profiles/@AnhPhuNguyen1/Medias/`.
+
+At the intended scale, 150 profiles × 200 posts, that is a yt-dlp process per
+post and tens of thousands of probes nobody asked for.
+
+After Clipping already has the mechanism to avoid this: `otherArchKeys`, which
+makes it skip any note carrying one of the named frontmatter keys. It defaults to
+`['yt-playlist', 'dl-all']` — the ARCH YT Playlists properties — and knows
+nothing about this plugin. **`x-post-id` and `x-profile-id` have to be added to
+that setting**, in After Clipping's own settings tab; changing the default in its
+code does not help an install whose saved `data.json` already shadows it.
+
+That also means `x-post-id` and `x-profile-id` are now load-bearing across two
+plugins. Renaming either one silently re-enables the yt-dlp storm.
+
 ## Rate limiting, which is the real constraint
 
 X rate-limits an authenticated session aggressively, and 150 profiles is a lot of
 requests. Three settings exist for this and all three matter:
 
 - `sleepRequest` (`--sleep-request`) — the most effective one
-- `maxPerProfile` (`--range 1-N`) — fetch recent posts, not whole timelines
+- `maxPerProfile` (`--post-range 1-N`) — fetch recent posts, not whole timelines
 - `useDownloadArchive` (`--download-archive`) — so a re-run is cheap
 
 A 429 is reported through `explain()` with the fix rather than as a raw stderr
@@ -152,9 +193,16 @@ This is a scaffold with a working enumeration and note-writing path. Still open:
   into one note.
 - **Single-post URLs.** `promptForUrl` currently treats any x.com URL as a
   profile. A `/status/` URL should archive just that post.
+- **Post note templates.** The frontmatter and body are a first guess. The
+  archiving strategy this feeds — what an AI assistant should be able to do with
+  a few thousand archived posts — has not been decided yet, and the template
+  should not be polished until it has.
 - **Only one profile has been run, at five posts.** The claims above are measured
   against gallery-dl 1.32.11 and a live `x.com/naval` timeline: URL forms, message
   types, `--post-range`, the in-band error, the guest token, and the id rounding.
   What has *not* been exercised: a large `--post-range`, the download archive,
   rate limiting under 150 profiles, protected accounts, threads, or any of this
   running inside Obsidian rather than through `lib/` in Node.
+
+  Since updated: enumeration and note writing have now run inside Obsidian across
+  several profiles with cookies from Chrome, and worked.
