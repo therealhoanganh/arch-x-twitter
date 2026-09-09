@@ -401,6 +401,20 @@ Changes to `main.js` were never affected — Obsidian re-evaluates that itself.
 That asymmetry is what made this confusing: some edits took, others did not.
 
 
+## The plugin id is part of several absolute paths
+
+Renaming the plugin (`arch-x-archive` → `arch-x-twitter`) moved the folder
+Obsidian loads from, the folder `data.json` lives in, and `bin/venv`. The venv is
+the one that breaks loudly: **a Python venv hardcodes its own absolute path into
+every script's shebang**, so after a move `gallery-dl` fails with *bad
+interpreter*, not *not found*. It has to be recreated, not moved.
+
+`ensureGalleryDl()` now probes the configured binary once per session and
+re-detects if it will not run. A configured absolute path stops working for
+reasons that have nothing to do with the user — a rename, a moved vault, a BRAT
+reinstall somewhere else — and reporting "install gallery-dl" when it is sitting
+right there is the wrong answer.
+
 ## Releasing
 
 `npm run build` writes `dist/main.js` and `dist/manifest.json`. Verify a release

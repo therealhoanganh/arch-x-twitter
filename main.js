@@ -209,7 +209,32 @@ class ArchXArchivePlugin extends Plugin {
     });
   }
 
+  // A configured absolute path stops working for reasons that have nothing to do
+  // with the user: the plugin folder is renamed, a vault moves, BRAT reinstalls
+  // elsewhere. A Python venv is worse than most -- it hardcodes its own path in
+  // every script's shebang, so it fails with "bad interpreter" rather than
+  // "not found". Re-detect once instead of reporting a broken install.
+  async ensureGalleryDl() {
+    const bin = this.settings.galleryDlPath || 'gallery-dl';
+    const probe = await this.run(bin, ['--version'], 15000).catch((e) => ({ code: 1, stderr: String(e.message) }));
+    if (probe.code === 0) return true;
+    this.log('configured gallery-dl did not run:', (probe.stderr || '').trim().split('\n')[0]);
+    const found = await this.findBinary('gallery-dl');
+    if (!found.found) return false;
+    this.settings.galleryDlPath = found.path;
+    await this.saveSettings();
+    this.log('gallery-dl re-detected at', found.path);
+    new Notice(`gallery-dl moved; using ${found.path}`, 8000);
+    return true;
+  }
+
   async runGalleryDl(target, opts, timeoutMs) {
+    if (!this._galleryDlChecked) {
+      this._galleryDlChecked = true;
+      if (!(await this.ensureGalleryDl())) {
+        throw new Error('gallery-dl could not be found. Run "Set up gallery-dl" from the command palette.');
+      }
+    }
     const args = this.lib().buildArgs(target, {
       cookiesFromBrowser: this.settings.cookiesFromBrowser,
       cookiesFile: this.settings.cookiesFile,

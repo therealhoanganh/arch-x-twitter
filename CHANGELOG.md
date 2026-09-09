@@ -9,6 +9,17 @@
 
 
 
+
+## 0.11.0 — unreleased
+
+- **Renamed to ARCH X Twitter** (`arch-x-twitter`).
+- Post notes go in a folder per profile by default: `Twitter/Posts/@handle`.
+- **gallery-dl is re-detected if the configured path will not run.** Renaming the
+  plugin moved `bin/venv`, and a Python venv hardcodes its own absolute path into
+  every script's shebang — so it failed with *bad interpreter* rather than *not
+  found*. The venv must be recreated after a move; the probe means the plugin
+  recovers instead of reporting a missing install.
+
 ## 0.10.0 — unreleased
 
 - **Profiles are now two lists.** A handful of accounts keep their own row with
