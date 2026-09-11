@@ -10,7 +10,11 @@
 
 
 
-## 0.11.0 — unreleased
+## 0.11.1
+
+- Renamed to 𝗔𝗿𝗰𝗵 X Twitter. No other change.
+
+## 0.11.0
 
 - **Renamed to ARCH X Twitter** (`arch-x-twitter`).
 - Post notes go in a folder per profile by default: `Twitter/Posts/@handle`.
