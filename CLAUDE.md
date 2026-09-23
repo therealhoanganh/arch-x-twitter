@@ -397,6 +397,11 @@ matches the plugin folder **and its realpath**, because during development that
 folder is a symlink into the repo and `require` resolves symlinks, so the cached
 keys live under the repo path rather than under `.obsidian`.
 
+**It walks `require.cache`, and that may be the wrong cache.** ARCH Recreations
+found that the `require` a plugin is handed is Obsidian's wrapper, whose `.cache` is
+not Node's, and walks `window.require.cache` instead. Not tested here; open work in
+`../CLAUDE.md`.
+
 Changes to `main.js` were never affected — Obsidian re-evaluates that itself.
 That asymmetry is what made this confusing: some edits took, others did not.
 
@@ -424,7 +429,9 @@ the way it actually installs: copy only those two files into a folder with no
 ## The profile note this is aiming at
 
 The ~27 hand-clipped profile notes in `TESTFIELD/Twitter/Profiles/` are the real
-target. This plugin does not yet produce them. One, in full:
+target. This plugin does not yet produce them. (Checked 2026-09-23: those 27 are in
+`TESTFIELD`'s trash now; the 182 in TECHNOS have the same shape, see *The test
+vault* below.) One, in full:
 
 ```yaml
 url: "[Link](https://x.com/karpathy)"
@@ -502,6 +509,15 @@ existed**, written by 0.1.0 under the old `X/Profiles` default and still carryin
 the `Twitter/Profiles` and `Twitter/Posts` defaults; it had not been done at the
 time of writing. Do not treat those notes as evidence of current behaviour, and
 check whether `X/` still exists before concluding anything from what is on disk.
+
+**Checked 2026-09-23: `X/` and `Twitter/` are both in `TESTFIELD`'s trash**, so the
+test vault holds no archive now. The profile notes in use are 182 in
+`⏻ TECHNOS/Twitter/Profiles`, the hand-made shape (tag `x-profile`, `t-rank`, icon and
+banner), with no post notes; the plugin has no saved settings there, so it has not
+run in that vault. 29 of them carry `name` rather than `x-name`, so the After
+Clipping marker does not cover them. That is harmless today, because After
+Clipping's x.com host pattern matches only `/status/` URLs and a profile's `url` is
+not one; it would matter if that pattern were ever widened.
 
 Enumeration has run there against several real profiles with cookies from Chrome
 and worked. Never exercised: the setup modal's install button, the bulk-add
