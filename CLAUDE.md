@@ -420,6 +420,15 @@ reasons that have nothing to do with the user — a rename, a moved vault, a BRA
 reinstall somewhere else — and reporting "install gallery-dl" when it is sitting
 right there is the wrong answer.
 
+**Re-detecting does not cover a renamed vault.** When the vault itself is renamed,
+the venv in `bin/venv` is broken in the same way and there is no working copy to
+find, so `ensureGalleryDl()` returns false. The TECHS → TECHNOS rename left it
+broken in TECHNOS and `~/Documents` (whose venv was a copy of TECHNOS's) until
+2026-09-25. Recreate the venv in place (`python3 -m venv --clear`, then `pip
+install gallery-dl`) and set `galleryDlPath` to the vault's own copy; Hoang Anh's
+rule is to fix this at once when it is found. Making the plugin reinstall a broken
+venv by itself is not built.
+
 ## Releasing
 
 `npm run build` writes `dist/main.js` and `dist/manifest.json`. Verify a release
