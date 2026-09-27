@@ -330,10 +330,12 @@ objects makes the settings tab slow to open and impossible to search, and there
 is nothing per-profile worth configuring for most of them. So the many live as
 text and the few that need settings stay as rows.
 
-The textarea is behind a `<details>` that remembers whether it was open, saves on
-a 400ms debounce rather than per keystroke, and only re-renders the tab on blur —
-re-rendering mid-edit steals focus, and saving a 300-line list on every keystroke
-is pointless work.
+The list is edited in a popup behind *Manage…* (`ListModal`, 0.11.3; the same
+class in YT Playlists, After Clipping and Browser History), chosen by him on
+2026-09-27 over a box that folds open in place. The settings card shows only the
+count. It saves on *Save*, or when the popup is closed with an edit in it; only
+*Cancel* discards. Until 0.11.3 it was a textarea behind a `<details>`, saving on a
+400ms debounce and re-rendering on blur.
 
 `bulkList` tolerates `@handle`, a bare handle, or a full URL, skips blank lines,
 and **ignores lines starting with `#`** so the list can carry its own notes.

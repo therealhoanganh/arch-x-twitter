@@ -10,6 +10,18 @@
 
 
 
+## 0.11.3
+
+- **The bulk list is one card and a popup**, as in YT Playlists 1.8.3. After the Title Case releases he asked: *"Did you work on UI of the plugins like button structures or something? Like in Arch YT Playlist, the toggle list to paste youtube channel links in is quite ugly."* The review had used a checklist (wording, keyboard, focus) that never judged layout. Shown three layouts, he chose a *Manage…* button opening a popup, the way Obsidian's own *Excluded files* setting works, and chose it for every list of that kind. The card
+  *Profiles in the Bulk List* holds the count, the explanation that was a loose paragraph,
+  and *Manage…*, *Sync N* and *Profile Notes Only* (the last two were a card of their own,
+  *Run the Bulk List*, below the options). It was a paragraph, a bare ▼ *Show the list* and
+  a sixteen-line box. The popup (`ListModal`, the same class in YT Playlists, X Twitter, After Clipping and Browser History) has a large box, a live count as you type, and *Cancel* and *Save*; only *Cancel* throws an edit away, since a long paste lost to Escape is worse than a save not asked for. Tried in TESTFIELD: the count, Cancel leaving the list alone, and Escape keeping an edit. `bulkOpen` is gone.
+- **Individual profiles**: the explanation and *Sync Rows* / *Profile Notes Only* share a
+  card (*Profiles in Rows*), and *Add a Profile* has one of its own. Putting the explanation
+  on the add card first squeezed it into a column six lines tall beside the box and three
+  buttons; seen in the screenshot and split.
+
 ## 0.11.2
 
 - **Title Case in every label**, from the web-design-guidelines review of 2026-09-27 (`~/Documents/ARCH UI Review.md`), whose whole list he approved: *"Yes, proceed on."* Commands, setting names and headings, buttons, popup titles and dropdown choices, Chicago style (small words such as *for*, *the*, *before* stay lower case), as in ARCH Images Plus 0.7.6. His preference: *"Actually, I much prefer Title Case."* Descriptions and notices stay sentences, and the ones that name a command or setting use its new name. A hotkey set on a command survives, because Obsidian stores hotkeys by the command's id. The timeline and folder dropdowns

@@ -18,7 +18,6 @@ const DEFAULT_SETTINGS = {
   bulkTimeline: '',
   bulkTags: '',
   bulkMaxPerProfile: '',
-  bulkOpen: false,
   timeline: 'posts',        // posts | replies | media | likes
   retweets: true,
   replies: false,
@@ -432,11 +431,12 @@ class ArchXArchivePlugin extends Plugin {
   // The bulk list is a plain newline-separated block of handles sharing one set
   // of options. Hundreds of individual rows made the settings tab unusable, so
   // the many live here and the few that need their own settings stay as rows.
-  bulkProfiles() {
+  // The list in settings, or the text given (the Manage popup counts as you type).
+  bulkProfiles(text = this.settings.bulkList) {
     const { handleFromUrl } = this.lib();
     const seen = new Set();
     const out = [];
-    for (const line of String(this.settings.bulkList || '').split('\n')) {
+    for (const line of String(text || '').split('\n')) {
       const raw = line.trim();
       if (!raw || raw.startsWith('#')) continue;
       const handle = (handleFromUrl(raw) || raw.replace(/^@/, '')).split(/[/?]/)[0];
@@ -995,6 +995,55 @@ class UrlModal extends Modal {
   }
 }
 
+// The popup behind a long list's Manage… button, the same class in ARCH YT
+// Playlists, X Twitter, After Clipping and Browser History (change all together). He chose it on 2026-09-27
+// for every long list, the way Obsidian's own Excluded Files setting works: the
+// settings tab shows one card with the count, and the list is edited here, in a
+// box big enough to paste into. Only Cancel throws an edit away; Escape or the ✕
+// keep it, since a long paste lost to one key is worse than a save not asked for.
+class ListModal extends Modal {
+  constructor(app, { title, hint, value, placeholder, count, onSave }) {
+    super(app);
+    Object.assign(this, { title, hint, value, placeholder, count, onSave });
+    this.done = false;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    this.titleEl.setText(this.title);
+    this.modalEl.style.width = 'min(720px, 92vw)';
+    if (this.hint) contentEl.createEl('p', { text: this.hint, cls: 'setting-item-description', attr: { style: 'margin-top:0;' } });
+    const ta = contentEl.createEl('textarea', {
+      attr: {
+        spellcheck: 'false',
+        'aria-label': this.title,
+        placeholder: this.placeholder || '',
+        style: 'width:100%; height:45vh; resize:vertical; font-family:var(--font-monospace); font-size:var(--font-ui-small); line-height:1.6;',
+      },
+    });
+    ta.value = this.value;
+    this.ta = ta;
+    const foot = contentEl.createDiv({ attr: { style: 'display:flex; align-items:center; gap:8px; margin-top:12px;' } });
+    const status = foot.createSpan({ cls: 'setting-item-description', attr: { style: 'flex:1; font-variant-numeric:tabular-nums;', 'aria-live': 'polite' } });
+    const update = () => status.setText(this.count(ta.value));
+    update();
+    ta.addEventListener('input', update);
+    const cancel = foot.createEl('button', { text: 'Cancel' });
+    cancel.onclick = () => { this.done = true; this.close(); };
+    const save = foot.createEl('button', { text: 'Save', cls: 'mod-cta' });
+    save.onclick = async () => { this.done = true; this.close(); await this.onSave(ta.value); };
+    // After Obsidian's own focus on the first button: the cursor goes to the end of the list.
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+  }
+
+  onClose() {
+    if (!this.done && this.ta && this.ta.value !== this.value) {
+      this.onSave(this.ta.value).then(() => new Notice(`${this.title}: saved.`));
+    }
+    this.contentEl.empty();
+  }
+}
+
 class SetupModal extends Modal {
   constructor(app, plugin, report, filled) { super(app); this.plugin = plugin; this.report = report; this.filled = filled; }
   onOpen() {
@@ -1081,32 +1130,30 @@ class ArchXSettingTab extends PluginSettingTab {
     // ---- the long tail: text, not rows ----
     const bulk = this.plugin.bulkProfiles();
     new Setting(containerEl).setName(`Bulk List (${bulk.length})`).setHeading();
-    containerEl.createEl('p', {
-      text: 'One handle per line — @handle or a full x.com URL. Lines starting with # are ignored, so you can keep notes in here. Every profile in this list shares the options below.',
-      cls: 'setting-item-description',
-    });
-
-    // Hundreds of rows is what made this tab unusable, so the list is a single
-    // textarea behind a disclosure that remembers whether it was open.
-    const details = containerEl.createEl('details');
-    details.open = !!s.bulkOpen;
-    details.createEl('summary', { text: bulk.length ? `Show the list (${bulk.length} profiles)` : 'Show the list (empty)' });
-    details.addEventListener('toggle', async () => { s.bulkOpen = details.open; await save(); });
-
-    const ta = details.createEl('textarea');
-    ta.value = s.bulkList || '';
-    ta.rows = 16;
-    ta.spellcheck = false;
-    ta.style.width = '100%';
-    ta.style.fontFamily = 'var(--font-monospace)';
-    let typing = null;
-    ta.addEventListener('input', () => {
-      // Debounced: saving on every keystroke of a 300-line list is pointless
-      // work, and re-rendering the tab mid-edit would steal focus.
-      clearTimeout(typing);
-      typing = setTimeout(async () => { s.bulkList = ta.value; await save(); }, 400);
-    });
-    ta.addEventListener('blur', async () => { s.bulkList = ta.value; await save(); this.display(); });
+    // One card with the count, the explanation and the buttons; the list itself is
+    // edited in a popup (ListModal), as in YT Playlists' channel list (2026-09-27). It
+    // was a loose paragraph, a bare <details> and a sixteen-line box.
+    const countBulk = (text) => {
+      const n = this.plugin.bulkProfiles(text).length;
+      return n ? `${n} profile${n === 1 ? '' : 's'}` : 'No profiles yet';
+    };
+    new Setting(containerEl)
+      .setName('Profiles in the Bulk List')
+      .setDesc(`${countBulk(s.bulkList)}. One per line: @handle or a full x.com URL; a line starting with # is a note to yourself. Every profile here shares the options below.`)
+      .addButton((b) => b.setButtonText('Manage\u2026').onClick(() =>
+        new ListModal(this.app, {
+          title: 'Bulk List',
+          hint: 'One per line: @handle or a full x.com URL. A line starting with # is a note to yourself.',
+          value: s.bulkList || '',
+          placeholder: '@karpathy\nhttps://x.com/AnthropicAI',
+          count: countBulk,
+          onSave: async (v) => { s.bulkList = v; await save(); this.display(); },
+        }).open()))
+      .addButton((b) => b.setButtonText(`Sync ${bulk.length}`).setCta().setDisabled(!bulk.length)
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list'))))
+      .addButton((b) => b.setButtonText('Profile Notes Only').setDisabled(!bulk.length)
+        .setTooltip('Fetch each profile note and its images, and write no posts')
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list', { profileOnly: true }))));
 
     new Setting(containerEl).setName('Timeline for the Bulk List')
       .addDropdown((d) => d.addOptions({ '': 'Use the Default Below', posts: 'Posts', tweets: 'Tweets Tab', replies: 'With Replies (Cookies)', media: 'Media Only (Cookies)', likes: 'Likes (Cookies)' })
@@ -1120,20 +1167,18 @@ class ArchXSettingTab extends PluginSettingTab {
       .addText((t) => t.setPlaceholder('default').setValue(s.bulkTags)
         .onChange(async (v) => { s.bulkTags = v.trim(); await save(); }));
 
-    new Setting(containerEl)
-      .setName('Run the Bulk List')
-      .addButton((b) => b.setButtonText(`Sync ${bulk.length}`).setCta()
-        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list'))))
-      .addButton((b) => b.setButtonText('Profile Notes Only')
-        .setTooltip('Fetch each profile note and its images, and write no posts')
-        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list', { profileOnly: true }))));
-
     // ---- the few that need their own settings ----
     new Setting(containerEl).setName(`Individual Profiles (${s.profiles.length})`).setHeading();
-    containerEl.createEl('p', {
-      text: 'For accounts you want to sync on their own, or that need different options from the bulk list. A handle in both lists is synced once, using the row.',
-      cls: 'setting-item-description',
-    });
+    // What the rows are for, beside the buttons that sync them, as on the bulk card;
+    // the add box has a card of its own, since sharing one squeezed the explanation
+    // into a column six lines tall (2026-09-27).
+    new Setting(containerEl)
+      .setName('Profiles in Rows')
+      .setDesc('For accounts you want to sync on their own, or that need different options from the bulk list. A handle in both lists is synced once, using the row.')
+      .addButton((b) => b.setButtonText('Sync Rows').setCta().setDisabled(!s.profiles.length)
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles'))))
+      .addButton((b) => b.setButtonText('Profile Notes Only').setDisabled(!s.profiles.length)
+        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles', { profileOnly: true }))));
 
     let pending = '';
     new Setting(containerEl)
@@ -1149,11 +1194,7 @@ class ArchXSettingTab extends PluginSettingTab {
         s.profiles.push({ handle, timeline: '', note: `@${handle}`, tags: '', enabled: true });
         await save();
         this.display();
-      }))
-      .addButton((b) => b.setButtonText('Sync Rows').setCta()
-        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles'))))
-      .addButton((b) => b.setButtonText('Profile Notes Only')
-        .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles', { profileOnly: true }))));
+      }));
 
     const list = containerEl.createDiv();
     list.style.maxHeight = '320px';
