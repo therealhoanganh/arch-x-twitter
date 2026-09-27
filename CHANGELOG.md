@@ -10,7 +10,13 @@
 
 
 
-## 0.11.5
+## 0.11.6
+
+- The cookie test counted a cookie as X's when its domain merely ended in "x.com", so
+  `akirabox.com`'s counted too; it takes x.com and twitter.com and their subdomains only.
+  Found testing Chrome on the PC after his logout fixed its keyring: Chrome there has no
+  X login at all, and the two "X" cookies were akirabox.com's.
+
 
 - **Setup is laid out like After Clipping's, and tests the cookies.** His words, after the
   PC's gallery-dl was fixed: *"we should have auto-setup button for Arch Twitter too."* It
