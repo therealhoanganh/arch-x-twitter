@@ -1208,7 +1208,7 @@ class SetupModal extends Modal {
         state = 'missing';
         const keyring = /ItemNotFound|Item does not exist/i.test(c.error);
         detail = `${s.cookiesFromBrowser}’s cookies could not be read: ${c.error}.` + (keyring
-          ? ' The desktop’s keyring has an entry it cannot open. Log out of the desktop and back in (restarting the apps is not enough), then Test.'
+          ? ' The desktop’s keyring has an entry it cannot open. Restart the computer (restarting the apps is not enough), then Test.'
           : /secretstorage/i.test(c.error) ? ' Update gallery-dl above to add the secretstorage package.' : '');
       }
     }

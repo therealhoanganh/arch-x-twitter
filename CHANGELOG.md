@@ -10,7 +10,14 @@
 
 
 
-## 0.11.6
+## 0.11.7
+
+- The cookie test's advice for a broken keyring says to restart the computer, not to log
+  out and back in. The logout did clear the PC's keyring on 2026-09-27, but seven minutes
+  into the new desktop session the NVIDIA driver ran out of GPU address space for GNOME
+  Shell ("can't alloc VA space", 41 Xid 31 faults), the desktop crawled, and he had to
+  reset the PC. A restart gives the keyring and the graphics driver a clean start together.
+
 
 - The cookie test counted a cookie as X's when its domain merely ended in "x.com", so
   `akirabox.com`'s counted too; it takes x.com and twitter.com and their subdomains only.
