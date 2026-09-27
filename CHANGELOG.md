@@ -10,7 +10,25 @@
 
 
 
-## 0.11.4
+## 0.11.5
+
+- **Setup is laid out like After Clipping's, and tests the cookies.** His words, after the
+  PC's gallery-dl was fixed: *"we should have auto-setup button for Arch Twitter too."* It
+  had one, *Check Setup*, on a settings row labelled *gallery-dl* beside *Update* and *Sync
+  Everything*, opening a plain ✓/✗ list with a single install button. Now the first
+  settings row is *Set Up External Tools* with *Open Setup*, as in After Clipping and YT
+  Playlists, and the command has that name too (its id is unchanged, so a hotkey stays).
+  The popup, *External Tools*, has one row per tool with ● ▲ ○: gallery-dl (*Install* or
+  *Update*), Python, ffmpeg, and **Cookies**, with the browser to pick and a *Test*.
+- **The cookie test** loads the browser's x.com cookies through this computer's gallery-dl
+  Python, as a sync would, and says whether an X login is among them. When it cannot, it
+  shows the reason and the fix: on the PC on 2026-09-27 it read "chrome's cookies could not
+  be read: ItemNotFoundException … The desktop's keyring has an entry it cannot open. Log out
+  of the desktop and back in (restarting the apps is not enough)". Before, a sync with
+  unreadable cookies ran logged out and said nothing, and only Posts came back.
+- The plugin's own gallery-dl path is no longer written into the synced setting, by the
+  setup or the installer; `galleryDlBin()` finds it on each computer (0.11.4).
+
 
 - **A missing gallery-dl says so, every time.** He clicked a profile row's button on the
   PC and got `Error: spawn …/bin/venv/bin/gallery-dl ENOENT` in the console. gallery-dl had

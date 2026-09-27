@@ -91,6 +91,20 @@ const DEFAULT_SETTINGS = {
 // not a choice, and `Object.assign(defaults, saved)` lets it shadow every new
 // default silently -- which is exactly how several rounds of template changes
 // appeared to do nothing at all.
+// Run by testCookies with this computer's gallery-dl Python: loads the browser's
+// cookies for x.com as a sync would and says whether an X login is among them.
+const COOKIE_TEST = [
+  'import sys, json, logging',
+  'logging.disable(logging.CRITICAL)',
+  'from gallery_dl import cookies',
+  'try:',
+  '    jar = cookies.load_cookies((sys.argv[1], None, None, None, ".x.com")) or []',
+  '    names = [c.name for c in jar if c.domain.endswith("x.com") or c.domain.endswith("twitter.com")]',
+  '    print(json.dumps({"ok": True, "count": len(names), "loggedIn": "auth_token" in names}))',
+  'except Exception as e:',
+  '    print(json.dumps({"ok": False, "error": type(e).__name__ + ": " + str(e)}))',
+].join('\n');
+
 const TEMPLATE_SETTINGS = [
   'profileNoteOrder', 'postNoteOrder',
   'archiveRoot', 'profileLocationMode', 'profileSubfolder', 'profileFolder',
@@ -111,7 +125,7 @@ class ArchXArchivePlugin extends Plugin {
     this.addCommand({ id: 'sync-bulk', name: 'Sync the Bulk List Only', callback: () => this.enqueue(() => this.syncList(this.bulkProfiles(), 'the bulk list')) });
     this.addCommand({ id: 'profile-notes-only', name: 'Create Profile Notes Only (No Posts)', callback: () => this.enqueue(() => this.syncList(this.allProfiles(), 'every list', { profileOnly: true })) });
     this.addCommand({ id: 'archive-url', name: 'Archive an X Post or Profile by URL…', callback: () => this.promptForUrl() });
-    this.addCommand({ id: 'setup', name: 'Set Up gallery-dl', callback: () => this.setup() });
+    this.addCommand({ id: 'setup', name: 'Set Up External Tools', callback: () => this.setup() });
 
     this.addSettingTab(new ArchXSettingTab(this.app, this));
 
@@ -244,7 +258,7 @@ class ArchXArchivePlugin extends Plugin {
     // threw a bare "spawn … ENOENT" instead of saying what to do.
     if (!this._galleryDlChecked) {
       if (!(await this.ensureGalleryDl())) {
-        throw new Error('gallery-dl is not installed on this computer. Run "Set Up gallery-dl" from the command palette.');
+        throw new Error('gallery-dl is not installed on this computer. Run "Set Up External Tools" from the command palette.');
       }
       this._galleryDlChecked = true;
     }
@@ -361,14 +375,35 @@ class ArchXArchivePlugin extends Plugin {
     const r = {};
     r.gallerydl = await this.findBinary('gallery-dl');
     r.python = await this.findBinary('python3', ['--version']);
+    r.uv = process.platform === 'linux' ? await this.findBinary('uv', ['--version']) : { found: false };
     r.ffmpeg = await this.findBinary('ffmpeg', ['-version']);
     r.browsers = this.detectBrowsers();
+    r.cookies = this.settings.cookiesFromBrowser ? await this.testCookies(this.settings.cookiesFromBrowser) : null;
     return r;
+  }
+
+  // Whether gallery-dl can read an X login from the browser (0.11.5). It loads the
+  // browser's cookies the way a sync does, through gallery-dl's own Python, so a
+  // keyring that cannot be read fails here with the reason instead of a sync
+  // quietly running logged out. Needs this computer's own gallery-dl venv.
+  async testCookies(browser) {
+    const py = path.join(path.dirname(this.galleryDlBin()), this.exeName('python'));
+    if (!fs.existsSync(py)) return { ok: false, error: 'gallery-dl is not installed in this plugin yet' };
+    const r = await this.run(py, ['-c', COOKIE_TEST, browser], 30000).catch((e) => ({ code: 1, stdout: '', stderr: e.message }));
+    try {
+      return JSON.parse((r.stdout || '').trim().split('\n').pop());
+    } catch (_) {
+      return { ok: false, error: (r.stderr || 'no answer').trim().split('\n').pop() };
+    }
   }
 
   async autoConfigure(report) {
     const filled = [];
-    if (report.gallerydl.found && path.isAbsolute(report.gallerydl.path) && report.gallerydl.path !== this.settings.galleryDlPath) {
+    // This plugin's own venv is found by galleryDlBin() on each computer, so its
+    // path is not written into the synced setting, where it would name one
+    // computer's folder on the other (0.11.5).
+    const own = report.gallerydl.found && report.gallerydl.path.startsWith(path.join(this.binDir(), 'venv'));
+    if (report.gallerydl.found && !own && path.isAbsolute(report.gallerydl.path) && report.gallerydl.path !== this.settings.galleryDlPath) {
       this.settings.galleryDlPath = report.gallerydl.path;
       filled.push(`gallery-dl path → ${report.gallerydl.path}`);
     }
@@ -425,14 +460,13 @@ class ArchXArchivePlugin extends Plugin {
       notice.hide();
       if (check.code !== 0) { new Notice('gallery-dl installed but would not run.', 10000); return false; }
 
-      this.settings.galleryDlPath = bin;
-      await this.saveSettings();
+      this._galleryDlChecked = false;
       new Notice(`gallery-dl ${check.stdout.trim()} installed.`, 8000);
       return true;
     } catch (e) {
       notice.hide();
       const hint = process.platform === 'darwin' ? 'brew install gallery-dl'
-        : process.platform === 'linux' ? 'sudo apt install python3-venv, then Set Up gallery-dl again (or install uv)'
+        : process.platform === 'linux' ? 'sudo apt install python3-venv, then Set Up External Tools again (or install uv)'
         : 'pip install gallery-dl';
       new Notice(`Could not install gallery-dl: ${e.message}\nTry: ${hint}`, 15000);
       return false;
@@ -458,13 +492,22 @@ class ArchXArchivePlugin extends Plugin {
     else new Notice('Update it the way you installed it (brew upgrade gallery-dl, or pip install -U gallery-dl).', 12000);
   }
 
+  // Finds the tools, fills the settings in, and opens the popup that installs
+  // or updates each one (0.11.5, laid out like After Clipping's).
   async setup() {
-    const notice = new Notice('Looking for gallery-dl, Python, browsers…', 0);
-    const report = await this.detectTools();
-    const filled = await this.autoConfigure(report);
+    const notice = new Notice('Looking for gallery-dl, Python, ffmpeg, browsers…', 0);
+    const { report, filled } = await this.checkTools();
     notice.hide();
-    this.log('tool report', report, 'filled', filled);
     new SetupModal(this.app, this, report, filled).open();
+  }
+
+  async checkTools() {
+    let report = await this.detectTools();
+    const filled = await this.autoConfigure(report);
+    // A browser picked just now has not been tested yet.
+    if (!report.cookies && this.settings.cookiesFromBrowser) report.cookies = await this.testCookies(this.settings.cookiesFromBrowser);
+    this.log('tool report', report, 'filled', filled);
+    return { report, filled };
   }
 
   /* ---------------- syncing ---------------- */
@@ -1085,50 +1128,117 @@ class ListModal extends Modal {
   }
 }
 
+// The setup popup (0.11.5), laid out like ARCH After Clipping's External Tools:
+// one row per tool with a mark (● all right, ▲ worth a look, ○ missing, the word as
+// a tooltip), what was found, and the button that fixes it.
 class SetupModal extends Modal {
-  constructor(app, plugin, report, filled) { super(app); this.plugin = plugin; this.report = report; this.filled = filled; }
+  constructor(app, plugin, report, filled) { super(app); this.plugin = plugin; this.report = report; this.filled = filled || []; }
+
   onOpen() {
+    this.titleEl.setText('External Tools');
+    this.render();
+  }
+
+  async refresh() {
+    const { report, filled } = await this.plugin.checkTools();
+    this.report = report;
+    this.filled = filled;
+    this.render();
+  }
+
+  row(label, state, detail, action) {
+    const s = new Setting(this.contentEl).setName(label).setDesc(detail);
+    const word = state === 'ok' ? 'All right' : state === 'warn' ? 'Worth a look' : 'Missing';
+    s.nameEl.prepend(createSpan({
+      text: state === 'ok' ? '● ' : state === 'warn' ? '▲ ' : '○ ',
+      attr: { style: `color: var(--color-${state === 'ok' ? 'green' : state === 'warn' ? 'yellow' : 'red'});`, title: word, 'aria-label': word },
+    }));
+    if (action) s.addButton((b) => b.setButtonText(action.label).onClick(action.onClick));
+    return s;
+  }
+
+  render() {
     const { contentEl } = this;
-    this.titleEl.setText('ARCH X Twitter — Setup');
     const r = this.report;
-
-    const row = (label, ok, detail) => {
-      const p = contentEl.createEl('p');
-      p.createSpan({ text: ok ? '✓ ' : '✗ ' });
-      p.createSpan({ text: label + ' ' });
-      p.createEl('code', { text: detail || (ok ? 'found' : 'not found') });
-    };
-
-    row('gallery-dl', r.gallerydl.found, r.gallerydl.found ? `${r.gallerydl.version} — ${r.gallerydl.path}` : 'not found');
-    row('Python 3', r.python.found, r.python.found ? r.python.version : 'not found');
-    row('ffmpeg', r.ffmpeg.found, r.ffmpeg.found ? 'found (needed for video)' : 'not found — video will not merge');
-    row('Browser cookies', r.browsers.length > 0, r.browsers.map((b) => b.name).join(', ') || 'none detected');
+    const s = this.plugin.settings;
+    contentEl.empty();
+    contentEl.createEl('p', { text: `${process.platform} ${process.arch}`, attr: { style: 'font-size:var(--font-ui-smaller); opacity:.6; margin:0 0 12px;' } });
 
     if (this.filled.length) {
-      contentEl.createEl('p', { text: 'Filled in for you:' });
-      const ul = contentEl.createEl('ul');
-      for (const f of this.filled) ul.createEl('li', { text: f });
+      const box = contentEl.createDiv({ attr: { style: 'border-left:3px solid var(--color-green); padding:8px 12px; margin-bottom:14px; background:var(--background-secondary); border-radius:4px;' } });
+      box.createEl('div', { text: 'Filled in for You', attr: { style: 'font-weight:600; margin-bottom:4px;' } });
+      for (const line of this.filled) box.createEl('div', { text: line, attr: { style: 'font-size:var(--font-ui-smaller); opacity:.85; word-break:break-all;' } });
     }
 
-    if (!r.gallerydl.found) {
-      contentEl.createEl('p', {
-        text: 'gallery-dl publishes no prebuilt binary, so it is installed into a private Python environment inside this plugin\'s folder. Nothing outside the plugin is touched, and removing the plugin removes it.',
-      });
-      const buttons = contentEl.createDiv({ cls: 'modal-button-container' });
-      buttons.createEl('button', { text: 'Install gallery-dl', cls: 'mod-cta' }).onclick = async () => {
-        this.close();
-        if (await this.plugin.installGalleryDl()) this.plugin.setup();
-      };
-      buttons.createEl('button', { text: 'I Will Install It Myself' }).onclick = () => this.close();
-    } else {
-      contentEl.createEl('p', {
-        text: 'X requires a logged-in session for almost everything. Cookies are read from the browser named above at the moment of each run — nothing is stored by this plugin.',
-      });
-      const buttons = contentEl.createDiv({ cls: 'modal-button-container' });
-      buttons.createEl('button', { text: 'Update gallery-dl' }).onclick = () => { this.close(); this.plugin.updateGalleryDl(); };
-      buttons.createEl('button', { text: 'Done', cls: 'mod-cta' }).onclick = () => this.close();
+    // gallery-dl
+    const own = r.gallerydl.found && r.gallerydl.path.startsWith(path.join(this.plugin.binDir(), 'venv'));
+    this.row('gallery-dl', r.gallerydl.found ? 'ok' : 'missing',
+      r.gallerydl.found
+        ? `${r.gallerydl.version}, ${own ? 'in this plugin’s own Python environment, built on this computer' : r.gallerydl.path}`
+        : 'Fetches the posts. It has no ready-made download, so it is installed into a private Python environment in this plugin’s folder, one per computer; nothing outside the plugin is touched.',
+      r.gallerydl.found
+        ? { label: 'Update', onClick: async () => { await this.plugin.updateGalleryDl(); this.refresh(); } }
+        : { label: 'Install', onClick: async () => { await this.plugin.installGalleryDl(); this.refresh(); } });
+
+    // Python, needed only to build that environment
+    const viaUv = !r.python.found || (r.uv && r.uv.found);
+    this.row('Python', r.python.found ? 'ok' : (r.uv && r.uv.found ? 'ok' : 'missing'),
+      r.python.found
+        ? `${r.python.version}. Needed only to install gallery-dl.${process.platform === 'linux' && r.uv && r.uv.found ? ' On this computer uv builds the environment, since Ubuntu’s Python needs python3-venv for it.' : ''}`
+        : viaUv && r.uv && r.uv.found ? 'Not found; uv will build the environment.' : 'Needed to install gallery-dl. Install Python 3, then Check Again.',
+      null);
+
+    // ffmpeg
+    this.row('ffmpeg', r.ffmpeg.found ? 'ok' : 'warn',
+      r.ffmpeg.found ? `${r.ffmpeg.version.split(' ').slice(0, 3).join(' ')}. ${r.ffmpeg.path}` : 'Needed to merge a video’s picture and sound. Posts and profiles work without it.',
+      null);
+
+    // Cookies: which browser, and whether its X login can be read
+    let state = 'warn';
+    let detail = 'None picked. X gives almost nothing to a visitor who is not logged in.';
+    const c = r.cookies;
+    if (s.cookiesFile) {
+      state = fs.existsSync(s.cookiesFile) ? 'ok' : 'missing';
+      detail = state === 'ok' ? `Read from ${s.cookiesFile}.` : `No file at ${s.cookiesFile}.`;
+    } else if (s.cookiesFromBrowser && c) {
+      if (c.ok && c.loggedIn) { state = 'ok'; detail = `Logged in to X in ${s.cookiesFromBrowser}; read from it at each sync, never stored.`; }
+      else if (c.ok) { state = 'warn'; detail = `${s.cookiesFromBrowser} has no X login. Log in to x.com in ${s.cookiesFromBrowser}, then Test.`; }
+      else {
+        state = 'missing';
+        const keyring = /ItemNotFound|Item does not exist/i.test(c.error);
+        detail = `${s.cookiesFromBrowser}’s cookies could not be read: ${c.error}.` + (keyring
+          ? ' The desktop’s keyring has an entry it cannot open. Log out of the desktop and back in (restarting the apps is not enough), then Test.'
+          : /secretstorage/i.test(c.error) ? ' Update gallery-dl above to add the secretstorage package.' : '');
+      }
     }
+    const cookieRow = this.row('Cookies', state, detail, null);
+    if ((r.browsers || []).length && !s.cookiesFile) {
+      cookieRow.addDropdown((d) => {
+        d.addOption('', 'None');
+        for (const b of r.browsers) d.addOption(b.name, b.name);
+        d.setValue(s.cookiesFromBrowser || '');
+        d.onChange(async (v) => {
+          s.cookiesFromBrowser = v;
+          await this.plugin.saveSettings();
+          this.report.cookies = v ? await this.plugin.testCookies(v) : null;
+          this.render();
+        });
+      });
+      if (s.cookiesFromBrowser) {
+        cookieRow.addButton((b) => b.setButtonText('Test').onClick(async () => {
+          b.setDisabled(true).setButtonText('Testing…');
+          this.report.cookies = await this.plugin.testCookies(s.cookiesFromBrowser);
+          this.render();
+        }));
+      }
+    }
+
+    new Setting(contentEl)
+      .addButton((b) => b.setButtonText('Check Again').onClick(() => this.refresh()))
+      .addButton((b) => b.setButtonText('Close').setCta().onClick(() => this.close()));
   }
+
+  onClose() { this.contentEl.empty(); }
 }
 
 /* ---------------- settings tab ---------------- */
@@ -1150,11 +1260,16 @@ class ArchXSettingTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const save = () => this.plugin.saveSettings();
 
+    // Setup has its own row, as in After Clipping and YT Playlists (0.11.5); it
+    // shared one labelled "gallery-dl" with Update and Sync Everything.
     new Setting(containerEl)
-      .setName('gallery-dl')
-      .setDesc(this.plugin.galleryDlBin())
-      .addButton((b) => b.setButtonText('Check Setup').onClick(() => this.plugin.setup()))
-      .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()))
+      .setName('Set Up External Tools')
+      .setDesc('Finds gallery-dl, Python, ffmpeg and your browsers, fills in the settings, installs gallery-dl if it is missing, and checks that the browser’s X login can be read.')
+      .addButton((b) => b.setButtonText('Open Setup').onClick(() => this.plugin.setup()));
+
+    new Setting(containerEl)
+      .setName('Sync Everything')
+      .setDesc('The bulk list and every row below, one profile at a time.')
       .addButton((b) => b.setButtonText('Sync Everything').setCta()
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncAll())));
 

@@ -439,7 +439,7 @@ builds its own, in every vault that has the plugin, and `galleryDlBin()` prefers
 over the synced `galleryDlPath`. The PC has none until one is built: that is what threw
 `spawn … ENOENT` on 2026-09-27. On Ubuntu, `python3 -m venv` needs the `python3-venv`
 package (sudo), so the venvs there were made with `uv venv` and `uv pip install
-gallery-dl secretstorage`, and *Set Up gallery-dl* falls back to `uv` the same way.
+gallery-dl secretstorage`, and *Set Up External Tools* falls back to `uv` the same way.
 **Chrome's cookies on the PC also depend on its GNOME keyring**, which on 2026-09-27 held two
 broken entries that stop both gallery-dl and yt-dlp from finding Chrome's key; see
 `~/Documents/CLAUDE.md`.
