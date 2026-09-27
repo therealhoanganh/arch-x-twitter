@@ -1167,7 +1167,7 @@ class SetupModal extends Modal {
 
     if (this.filled.length) {
       const box = contentEl.createDiv({ attr: { style: 'border-left:3px solid var(--color-green); padding:8px 12px; margin-bottom:14px; background:var(--background-secondary); border-radius:4px;' } });
-      box.createEl('div', { text: 'Filled in for You', attr: { style: 'font-weight:600; margin-bottom:4px;' } });
+      box.createEl('div', { text: 'Filled In for You', attr: { style: 'font-weight:600; margin-bottom:4px;' } });
       for (const line of this.filled) box.createEl('div', { text: line, attr: { style: 'font-size:var(--font-ui-smaller); opacity:.85; word-break:break-all;' } });
     }
 

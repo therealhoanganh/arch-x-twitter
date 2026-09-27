@@ -10,6 +10,10 @@
 
 
 
+## 0.11.9
+
+- The setup popup's box heading reads *Filled In for You*: it read *Filled in for You* (found in the check before a compact, 2026-09-27; "in" is capitalized as the particle of *fill in*).
+
 ## 0.11.8
 
 - **The Cookies row says, line by line, what is wrong, what fails and how to fix it.**
