@@ -431,6 +431,19 @@ install gallery-dl`) and set `galleryDlPath` to the vault's own copy; Hoang Anh'
 rule is to fix this at once when it is found. Making the plugin reinstall a broken
 venv by itself is not built.
 
+## Each computer has its own gallery-dl (0.11.4)
+
+`bin/venv` is not mirrored between the Mac and the PC (`**/bin/venv` in the Syncthing
+ignore list): a venv holds absolute paths and machine-specific files. So each computer
+builds its own, in every vault that has the plugin, and `galleryDlBin()` prefers that copy
+over the synced `galleryDlPath`. The PC has none until one is built: that is what threw
+`spawn … ENOENT` on 2026-09-27. On Ubuntu, `python3 -m venv` needs the `python3-venv`
+package (sudo), so the venvs there were made with `uv venv` and `uv pip install
+gallery-dl secretstorage`, and *Set Up gallery-dl* falls back to `uv` the same way.
+**Chrome's cookies on the PC also depend on its GNOME keyring**, which on 2026-09-27 held two
+broken entries that stop both gallery-dl and yt-dlp from finding Chrome's key; see
+`~/Documents/CLAUDE.md`.
+
 ## Releasing
 
 `npm run build` writes `dist/main.js` and `dist/manifest.json`. Verify a release

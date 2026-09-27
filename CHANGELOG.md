@@ -10,7 +10,30 @@
 
 
 
-## 0.11.3
+## 0.11.4
+
+- **A missing gallery-dl says so, every time.** He clicked a profile row's button on the
+  PC and got `Error: spawn …/bin/venv/bin/gallery-dl ENOENT` in the console. gallery-dl had
+  never been installed on the PC: `bin/venv` is deliberately not mirrored between the
+  computers (a venv holds absolute paths and machine-specific files), so each one builds its
+  own. The first click did say "gallery-dl could not be found", but the check marked itself
+  done *before* its result, so every later click ran the missing file. It is marked done
+  only once it passes, and the message says gallery-dl is not installed on this computer.
+- **Each computer uses its own copy** (`galleryDlBin`): the plugin's `bin/venv` when it has
+  one, else the setting (for a gallery-dl installed elsewhere). A path saved on the PC
+  (`/home/…`) does not exist on the Mac, so the synced setting alone would have flipped
+  back and forth with a "gallery-dl moved" notice at every switch of computer.
+- ***Set Up gallery-dl* works on Ubuntu without sudo.** Its Python cannot make a venv until
+  `python3-venv` is installed, which needs the password; when `python -m venv` fails and
+  `uv` is found, `uv` makes it. *Update* uses `uv` too for such a venv, which has no `pip`.
+  Tried in TESTFIELD: the venv removed, *Set Up* rebuilt it through `uv`, and the row's
+  profile-note button wrote `@nickfloats`.
+- **On Linux `secretstorage` is installed beside gallery-dl**, which needs it to decrypt
+  Chrome's cookies through the GNOME keyring (without it, 89 of 194 cookies stayed
+  encrypted). The failure hint names the platform's own fix instead of always `brew`.
+- `bin/` is in `.gitignore`: TESTFIELD's venv lives inside this repository through the
+  symlink.
+
 
 - **The bulk list is one card and a popup**, as in YT Playlists 1.8.3. After the Title Case releases he asked: *"Did you work on UI of the plugins like button structures or something? Like in Arch YT Playlist, the toggle list to paste youtube channel links in is quite ugly."* The review had used a checklist (wording, keyboard, focus) that never judged layout. Shown three layouts, he chose a *Manage…* button opening a popup, the way Obsidian's own *Excluded files* setting works, and chose it for every list of that kind. The card
   *Profiles in the Bulk List* holds the count, the explanation that was a loose paragraph,

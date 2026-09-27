@@ -213,8 +213,19 @@ class ArchXArchivePlugin extends Plugin {
   // elsewhere. A Python venv is worse than most -- it hardcodes its own path in
   // every script's shebang, so it fails with "bad interpreter" rather than
   // "not found". Re-detect once instead of reporting a broken install.
+  // This computer's own copy, in the plugin's bin/venv, when it has one; else the
+  // setting (a gallery-dl installed elsewhere, such as Homebrew's). The vaults are
+  // mirrored between the Mac and the PC, and a path saved on one (/home/… on the
+  // PC) does not exist on the other, so the setting alone flipped back and forth
+  // with a "gallery-dl moved" notice at every switch (0.11.4). bin/venv is never
+  // mirrored: each computer builds its own.
+  galleryDlBin() {
+    const own = path.join(this.binDir(), 'venv', process.platform === 'win32' ? 'Scripts' : 'bin', this.exeName('gallery-dl'));
+    return fs.existsSync(own) ? own : this.settings.galleryDlPath || 'gallery-dl';
+  }
+
   async ensureGalleryDl() {
-    const bin = this.settings.galleryDlPath || 'gallery-dl';
+    const bin = this.galleryDlBin();
     const probe = await this.run(bin, ['--version'], 15000).catch((e) => ({ code: 1, stderr: String(e.message) }));
     if (probe.code === 0) return true;
     this.log('configured gallery-dl did not run:', (probe.stderr || '').trim().split('\n')[0]);
@@ -228,11 +239,14 @@ class ArchXArchivePlugin extends Plugin {
   }
 
   async runGalleryDl(target, opts, timeoutMs) {
+    // Marked checked only once the check passes (0.11.4). It used to be marked
+    // before, so after one failure every later click ran the missing file and
+    // threw a bare "spawn … ENOENT" instead of saying what to do.
     if (!this._galleryDlChecked) {
-      this._galleryDlChecked = true;
       if (!(await this.ensureGalleryDl())) {
-        throw new Error('gallery-dl could not be found. Run "Set Up gallery-dl" from the command palette.');
+        throw new Error('gallery-dl is not installed on this computer. Run "Set Up gallery-dl" from the command palette.');
       }
+      this._galleryDlChecked = true;
     }
     const args = this.lib().buildArgs(target, {
       cookiesFromBrowser: this.settings.cookiesFromBrowser,
@@ -247,7 +261,7 @@ class ArchXArchivePlugin extends Plugin {
       ...opts,
     });
     this.log('gallery-dl', args.join(' '));
-    const r = await this.run(this.settings.galleryDlPath || 'gallery-dl', args, timeoutMs);
+    const r = await this.run(this.galleryDlBin(), args, timeoutMs);
     this.log('exit', r.code, 'stdout', r.stdout.length, 'bytes');
     if (r.stderr.trim()) this.log('stderr', r.stderr.trim().split('\n').slice(-5).join('\n'));
     return r;
@@ -372,6 +386,12 @@ class ArchXArchivePlugin extends Plugin {
   // downloading a standalone executable does not transfer. A private venv is the
   // closest equivalent: self-contained, removable with the plugin folder, and it
   // does not touch the user's system Python.
+  // On Linux gallery-dl reads Chrome's cookies through the keyring, which needs
+  // secretstorage; without it most cookies stay encrypted and only Posts works (0.11.4).
+  galleryDlPackages() {
+    return process.platform === 'linux' ? ['gallery-dl', 'secretstorage'] : ['gallery-dl'];
+  }
+
   async installGalleryDl() {
     const python = (await this.findBinary('python3', ['--version'])).path || 'python3';
     const venv = path.join(this.binDir(), 'venv');
@@ -382,11 +402,24 @@ class ArchXArchivePlugin extends Plugin {
     try {
       fs.mkdirSync(this.binDir(), { recursive: true });
       let r = await this.run(python, ['-m', 'venv', venv], 180000);
-      if (r.code !== 0) throw new Error(`venv failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
-
-      notice.setMessage('Installing gallery-dl…');
-      r = await this.run(pip, ['install', '--upgrade', 'gallery-dl'], 300000);
-      if (r.code !== 0) throw new Error(`pip failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
+      // Ubuntu's Python cannot make a venv until python3-venv is installed, which
+      // needs sudo; uv (astral.sh) makes the same venv without it (0.11.4).
+      const uv = r.code === 0 ? null : await this.findBinary('uv', ['--version']);
+      if (r.code !== 0 && uv && uv.found) {
+        this.log('python -m venv failed, using uv:', r.stderr.trim().split('\n')[0]);
+        fs.rmSync(venv, { recursive: true, force: true });
+        r = await this.run(uv.path, ['venv', '--python', python, venv], 180000);
+        if (r.code !== 0) throw new Error(`uv venv failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
+        notice.setMessage('Installing gallery-dl…');
+        const py = path.join(venv, process.platform === 'win32' ? 'Scripts' : 'bin', this.exeName('python'));
+        r = await this.run(uv.path, ['pip', 'install', '--python', py, '--upgrade', ...this.galleryDlPackages()], 300000);
+        if (r.code !== 0) throw new Error(`uv pip failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
+      } else {
+        if (r.code !== 0) throw new Error(`venv failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
+        notice.setMessage('Installing gallery-dl…');
+        r = await this.run(pip, ['install', '--upgrade', ...this.galleryDlPackages()], 300000);
+        if (r.code !== 0) throw new Error(`pip failed: ${r.stderr.trim().split('\n').slice(-2).join(' ')}`);
+      }
 
       const check = await this.run(bin, ['--version'], 20000);
       notice.hide();
@@ -398,20 +431,28 @@ class ArchXArchivePlugin extends Plugin {
       return true;
     } catch (e) {
       notice.hide();
-      new Notice(`Could not install gallery-dl: ${e.message}\nTry: brew install gallery-dl`, 15000);
+      const hint = process.platform === 'darwin' ? 'brew install gallery-dl'
+        : process.platform === 'linux' ? 'sudo apt install python3-venv, then Set Up gallery-dl again (or install uv)'
+        : 'pip install gallery-dl';
+      new Notice(`Could not install gallery-dl: ${e.message}\nTry: ${hint}`, 15000);
       return false;
     }
   }
 
   async updateGalleryDl() {
-    const bin = this.settings.galleryDlPath || 'gallery-dl';
+    const bin = this.galleryDlBin();
     const venvPip = bin.includes(path.join('bin', 'venv')) || bin.includes(`${path.sep}venv${path.sep}`)
       ? path.join(path.dirname(bin), this.exeName('pip'))
       : null;
     const notice = new Notice('Updating gallery-dl…', 0);
-    const r = venvPip
-      ? await this.run(venvPip, ['install', '--upgrade', 'gallery-dl'], 300000)
-      : { code: 1, stderr: 'not a managed install' };
+    let r = { code: 1, stderr: 'not a managed install' };
+    if (venvPip && fs.existsSync(venvPip)) {
+      r = await this.run(venvPip, ['install', '--upgrade', ...this.galleryDlPackages()], 300000);
+    } else if (venvPip) {
+      // A venv made by uv has no pip of its own (0.11.4).
+      const uv = await this.findBinary('uv', ['--version']);
+      if (uv.found) r = await this.run(uv.path, ['pip', 'install', '--python', path.join(path.dirname(bin), this.exeName('python')), '--upgrade', ...this.galleryDlPackages()], 300000);
+    }
     notice.hide();
     if (r.code === 0) new Notice('gallery-dl is up to date.', 6000);
     else new Notice('Update it the way you installed it (brew upgrade gallery-dl, or pip install -U gallery-dl).', 12000);
@@ -1111,7 +1152,7 @@ class ArchXSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('gallery-dl')
-      .setDesc(s.galleryDlPath)
+      .setDesc(this.plugin.galleryDlBin())
       .addButton((b) => b.setButtonText('Check Setup').onClick(() => this.plugin.setup()))
       .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()))
       .addButton((b) => b.setButtonText('Sync Everything').setCta()

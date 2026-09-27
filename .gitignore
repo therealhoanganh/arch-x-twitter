@@ -12,3 +12,6 @@ node_modules/
 
 # Release build output; produced by `npm run build`, attached to releases
 dist/
+
+# The plugin's private gallery-dl environment, built on each computer (never mirrored)
+bin/
