@@ -441,8 +441,9 @@ over the synced `galleryDlPath`. The PC has none until one is built: that is wha
 package (sudo), so the venvs there were made with `uv venv` and `uv pip install
 gallery-dl secretstorage`, and *Set Up External Tools* falls back to `uv` the same way.
 **Chrome's cookies on the PC also depend on its GNOME keyring**, which on 2026-09-27 held two
-broken entries that stop both gallery-dl and yt-dlp from finding Chrome's key; see
-`~/Documents/CLAUDE.md`.
+broken entries that stopped both gallery-dl and yt-dlp from finding Chrome's key, until a
+log out and back in (restarting the apps is not enough). *Set Up External Tools* tests the
+cookies and names this fault if it comes back.
 
 ## Releasing
 
