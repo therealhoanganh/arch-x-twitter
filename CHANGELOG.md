@@ -10,6 +10,17 @@
 
 
 
+## 0.11.2
+
+- **Title Case in every label**, from the web-design-guidelines review of 2026-09-27 (`~/Documents/ARCH UI Review.md`), whose whole list he approved: *"Yes, proceed on."* Commands, setting names and headings, buttons, popup titles and dropdown choices, Chicago style (small words such as *for*, *the*, *before* stay lower case), as in ARCH Images Plus 0.7.6. His preference: *"Actually, I much prefer Title Case."* Descriptions and notices stay sentences, and the ones that name a command or setting use its new name. A hotkey set on a command survives, because Obsidian stores hotkeys by the command's id. The timeline and folder dropdowns
+  included. *For @example, that is* stays a phrase: it introduces a preview line.
+- The setup popup was titled "ARCH X Archive — setup", the plugin's old name; it reads
+  *ARCH X Twitter — Setup*.
+- **The settings headings are Obsidian's own** (`setHeading`), not plain `h3` text, which
+  looked different from After Clipping's, YT Playlists' and Images Plus's.
+- The *Archive from X* box has a name besides its grey hint, and no spell-check underlines
+  anywhere in the settings, whose fields hold handles, paths and patterns.
+
 ## 0.11.1
 
 - Renamed to 𝗔𝗿𝗰𝗵 X Twitter. No other change.

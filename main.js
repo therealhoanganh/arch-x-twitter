@@ -107,12 +107,12 @@ class ArchXArchivePlugin extends Plugin {
     this.procs = new Set();
     this.queue = Promise.resolve();
 
-    this.addCommand({ id: 'sync-all-profiles', name: 'Sync all profiles', callback: () => this.enqueue(() => this.syncAll()) });
-    this.addCommand({ id: 'sync-individual', name: 'Sync individual profiles only', callback: () => this.enqueue(() => this.syncList(this.individualProfiles(), 'individual profiles')) });
-    this.addCommand({ id: 'sync-bulk', name: 'Sync the bulk list only', callback: () => this.enqueue(() => this.syncList(this.bulkProfiles(), 'the bulk list')) });
-    this.addCommand({ id: 'profile-notes-only', name: 'Create profile notes only (no posts)', callback: () => this.enqueue(() => this.syncList(this.allProfiles(), 'every list', { profileOnly: true })) });
-    this.addCommand({ id: 'archive-url', name: 'Archive an X post or profile by URL…', callback: () => this.promptForUrl() });
-    this.addCommand({ id: 'setup', name: 'Set up gallery-dl', callback: () => this.setup() });
+    this.addCommand({ id: 'sync-all-profiles', name: 'Sync All Profiles', callback: () => this.enqueue(() => this.syncAll()) });
+    this.addCommand({ id: 'sync-individual', name: 'Sync Individual Profiles Only', callback: () => this.enqueue(() => this.syncList(this.individualProfiles(), 'individual profiles')) });
+    this.addCommand({ id: 'sync-bulk', name: 'Sync the Bulk List Only', callback: () => this.enqueue(() => this.syncList(this.bulkProfiles(), 'the bulk list')) });
+    this.addCommand({ id: 'profile-notes-only', name: 'Create Profile Notes Only (No Posts)', callback: () => this.enqueue(() => this.syncList(this.allProfiles(), 'every list', { profileOnly: true })) });
+    this.addCommand({ id: 'archive-url', name: 'Archive an X Post or Profile by URL…', callback: () => this.promptForUrl() });
+    this.addCommand({ id: 'setup', name: 'Set Up gallery-dl', callback: () => this.setup() });
 
     this.addSettingTab(new ArchXSettingTab(this.app, this));
 
@@ -232,7 +232,7 @@ class ArchXArchivePlugin extends Plugin {
     if (!this._galleryDlChecked) {
       this._galleryDlChecked = true;
       if (!(await this.ensureGalleryDl())) {
-        throw new Error('gallery-dl could not be found. Run "Set up gallery-dl" from the command palette.');
+        throw new Error('gallery-dl could not be found. Run "Set Up gallery-dl" from the command palette.');
       }
     }
     const args = this.lib().buildArgs(target, {
@@ -362,7 +362,7 @@ class ArchXArchivePlugin extends Plugin {
     if (!this.settings.cookiesFile && !this.settings.cookiesFromBrowser && report.browsers.length) {
       const usable = report.browsers.find((b) => b.name !== 'safari') || report.browsers[0];
       this.settings.cookiesFromBrowser = usable.name;
-      filled.push(`Cookies from browser → ${usable.name}`);
+      filled.push(`Cookies from Browser → ${usable.name}`);
     }
     if (filled.length) await this.saveSettings();
     return filled;
@@ -554,9 +554,9 @@ class ArchXArchivePlugin extends Plugin {
   // a logged-out client, and it reads like a bug rather than a missing setting.
   explain(raw) {
     const s = String(raw || '');
-    if (/AuthRequired|authenticated cookies/i.test(s)) return 'That timeline needs a logged-in session. Pick a browser under "Cookies from browser" in settings — Posts works without one, but replies, media and likes do not.';
+    if (/AuthRequired|authenticated cookies/i.test(s)) return 'That timeline needs a logged-in session. Pick a browser under "Cookies from Browser" in settings — Posts works without one, but replies, media and likes do not.';
     if (/401|Unauthorized|login|authorization/i.test(s)) return 'X refused the request — cookies are missing or stale. Log in to X in your browser, then sync again.';
-    if (/429|rate.?limit/i.test(s)) return 'Rate-limited by X. Raise "Seconds between requests" and try a smaller batch.';
+    if (/429|rate.?limit/i.test(s)) return 'Rate-limited by X. Raise "Seconds between Requests" and try a smaller batch.';
     if (/404|Not Found|suspended/i.test(s)) return 'Profile not found, suspended, or protected.';
     return s.trim().split('\n').filter(Boolean).slice(-1)[0] || 'gallery-dl returned nothing usable.';
   }
@@ -985,7 +985,7 @@ class UrlModal extends Modal {
   constructor(app, onSubmit) { super(app); this.onSubmit = onSubmit; }
   onOpen() {
     this.titleEl.setText('Archive from X');
-    const input = this.contentEl.createEl('input', { type: 'text', placeholder: 'https://x.com/someone or a post URL' });
+    const input = this.contentEl.createEl('input', { type: 'text', placeholder: 'https://x.com/someone or a post URL\u2026', attr: { 'aria-label': 'X post or profile address', spellcheck: 'false' } });
     input.style.width = '100%';
     input.focus();
     const go = () => { this.close(); this.onSubmit(input.value.trim()); };
@@ -999,7 +999,7 @@ class SetupModal extends Modal {
   constructor(app, plugin, report, filled) { super(app); this.plugin = plugin; this.report = report; this.filled = filled; }
   onOpen() {
     const { contentEl } = this;
-    this.titleEl.setText('ARCH X Archive — setup');
+    this.titleEl.setText('ARCH X Twitter — Setup');
     const r = this.report;
 
     const row = (label, ok, detail) => {
@@ -1029,7 +1029,7 @@ class SetupModal extends Modal {
         this.close();
         if (await this.plugin.installGalleryDl()) this.plugin.setup();
       };
-      buttons.createEl('button', { text: 'I will install it myself' }).onclick = () => this.close();
+      buttons.createEl('button', { text: 'I Will Install It Myself' }).onclick = () => this.close();
     } else {
       contentEl.createEl('p', {
         text: 'X requires a logged-in session for almost everything. Cookies are read from the browser named above at the moment of each run — nothing is stored by this plugin.',
@@ -1044,7 +1044,15 @@ class SetupModal extends Modal {
 /* ---------------- settings tab ---------------- */
 
 class ArchXSettingTab extends PluginSettingTab {
-  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+    // Its fields hold paths, commands, patterns and lists, not prose, so no
+    // spell-check underlines; set as each one gets focus, which is when they appear.
+    this.containerEl.addEventListener('focusin', (e) => {
+      if (e.target.matches('input[type="text"], input:not([type]), textarea')) e.target.spellcheck = false;
+    });
+  }
 
   display() {
     const { containerEl } = this;
@@ -1055,13 +1063,13 @@ class ArchXSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('gallery-dl')
       .setDesc(s.galleryDlPath)
-      .addButton((b) => b.setButtonText('Check setup').onClick(() => this.plugin.setup()))
+      .addButton((b) => b.setButtonText('Check Setup').onClick(() => this.plugin.setup()))
       .addButton((b) => b.setButtonText('Update').onClick(() => this.plugin.updateGalleryDl()))
-      .addButton((b) => b.setButtonText('Sync everything').setCta()
+      .addButton((b) => b.setButtonText('Sync Everything').setCta()
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncAll())));
 
     new Setting(containerEl)
-      .setName('Reset templates and folders')
+      .setName('Reset Templates and Folders')
       .setDesc('Puts the note templates, folder layout, tags and link style back to this version\'s defaults. Profiles, cookies and limits are untouched.')
       .addButton((b) => b.setWarning().setButtonText('Reset').onClick(async () => {
         this.plugin.resetTemplateSettings();
@@ -1072,7 +1080,7 @@ class ArchXSettingTab extends PluginSettingTab {
 
     // ---- the long tail: text, not rows ----
     const bulk = this.plugin.bulkProfiles();
-    containerEl.createEl('h3', { text: `Bulk list (${bulk.length})` });
+    new Setting(containerEl).setName(`Bulk List (${bulk.length})`).setHeading();
     containerEl.createEl('p', {
       text: 'One handle per line — @handle or a full x.com URL. Lines starting with # are ignored, so you can keep notes in here. Every profile in this list shares the options below.',
       cls: 'setting-item-description',
@@ -1100,28 +1108,28 @@ class ArchXSettingTab extends PluginSettingTab {
     });
     ta.addEventListener('blur', async () => { s.bulkList = ta.value; await save(); this.display(); });
 
-    new Setting(containerEl).setName('Timeline for the bulk list')
-      .addDropdown((d) => d.addOptions({ '': 'Use the default below', posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
+    new Setting(containerEl).setName('Timeline for the Bulk List')
+      .addDropdown((d) => d.addOptions({ '': 'Use the Default Below', posts: 'Posts', tweets: 'Tweets Tab', replies: 'With Replies (Cookies)', media: 'Media Only (Cookies)', likes: 'Likes (Cookies)' })
         .setValue(s.bulkTimeline).onChange(async (v) => { s.bulkTimeline = v; await save(); }));
-    new Setting(containerEl).setName('Posts per profile for the bulk list')
+    new Setting(containerEl).setName('Posts per Profile for the Bulk List')
       .setDesc('Blank uses the default below.')
       .addText((t) => t.setPlaceholder('default').setValue(String(s.bulkMaxPerProfile ?? ''))
         .onChange(async (v) => { s.bulkMaxPerProfile = v.trim(); await save(); }));
-    new Setting(containerEl).setName('Tags for the bulk list')
+    new Setting(containerEl).setName('Tags for the Bulk List')
       .setDesc('Blank uses the default post tags.')
       .addText((t) => t.setPlaceholder('default').setValue(s.bulkTags)
         .onChange(async (v) => { s.bulkTags = v.trim(); await save(); }));
 
     new Setting(containerEl)
-      .setName('Run the bulk list')
+      .setName('Run the Bulk List')
       .addButton((b) => b.setButtonText(`Sync ${bulk.length}`).setCta()
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list'))))
-      .addButton((b) => b.setButtonText('Profile notes only')
+      .addButton((b) => b.setButtonText('Profile Notes Only')
         .setTooltip('Fetch each profile note and its images, and write no posts')
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.bulkProfiles(), 'the bulk list', { profileOnly: true }))));
 
     // ---- the few that need their own settings ----
-    containerEl.createEl('h3', { text: `Individual profiles (${s.profiles.length})` });
+    new Setting(containerEl).setName(`Individual Profiles (${s.profiles.length})`).setHeading();
     containerEl.createEl('p', {
       text: 'For accounts you want to sync on their own, or that need different options from the bulk list. A handle in both lists is synced once, using the row.',
       cls: 'setting-item-description',
@@ -1129,7 +1137,7 @@ class ArchXSettingTab extends PluginSettingTab {
 
     let pending = '';
     new Setting(containerEl)
-      .setName('Add a profile')
+      .setName('Add a Profile')
       .addText((t) => t.setPlaceholder('@handle or x.com URL').onChange((v) => { pending = v.trim(); }))
       .addButton((b) => b.setButtonText('Add').onClick(async () => {
         const { handleFromUrl } = this.plugin.lib();
@@ -1142,9 +1150,9 @@ class ArchXSettingTab extends PluginSettingTab {
         await save();
         this.display();
       }))
-      .addButton((b) => b.setButtonText('Sync rows').setCta()
+      .addButton((b) => b.setButtonText('Sync Rows').setCta()
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles'))))
-      .addButton((b) => b.setButtonText('Profile notes only')
+      .addButton((b) => b.setButtonText('Profile Notes Only')
         .onClick(() => this.plugin.enqueue(() => this.plugin.syncList(this.plugin.individualProfiles(), 'individual profiles', { profileOnly: true }))));
 
     const list = containerEl.createDiv();
@@ -1155,7 +1163,7 @@ class ArchXSettingTab extends PluginSettingTab {
         .setName(`@${p.handle}`)
         .addToggle((t) => t.setTooltip('Include when syncing rows').setValue(p.enabled !== false)
           .onChange(async (v) => { p.enabled = v; await save(); }))
-        .addDropdown((d) => d.addOptions({ '': 'Default timeline', posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
+        .addDropdown((d) => d.addOptions({ '': 'Default Timeline', posts: 'Posts', tweets: 'Tweets Tab', replies: 'With Replies (Cookies)', media: 'Media Only (Cookies)', likes: 'Likes (Cookies)' })
           .setValue(p.timeline || '').onChange(async (v) => { p.timeline = v; await save(); }))
         .addButton((b) => b.setIcon('user').setTooltip('Profile note only, no posts')
           .onClick(() => this.plugin.enqueue(async () => {
@@ -1180,72 +1188,72 @@ class ArchXSettingTab extends PluginSettingTab {
           .onClick(async () => { s.profiles.splice(i, 1); await save(); this.display(); }));
     });
 
-    containerEl.createEl('h3', { text: 'What to fetch' });
+    new Setting(containerEl).setName('What to Fetch').setHeading();
 
-    new Setting(containerEl).setName('Default timeline')
-      .addDropdown((d) => d.addOptions({ posts: 'Posts', tweets: 'Tweets tab', replies: 'With replies (cookies)', media: 'Media only (cookies)', likes: 'Likes (cookies)' })
+    new Setting(containerEl).setName('Default Timeline')
+      .addDropdown((d) => d.addOptions({ posts: 'Posts', tweets: 'Tweets Tab', replies: 'With Replies (Cookies)', media: 'Media Only (Cookies)', likes: 'Likes (Cookies)' })
         .setValue(s.timeline).onChange(async (v) => { s.timeline = v; await save(); }));
 
-    new Setting(containerEl).setName('Most recent posts per profile')
+    new Setting(containerEl).setName('Most Recent Posts per Profile')
       .setDesc('0 fetches the whole timeline. Start small: X rate-limits hard and 150 profiles is a lot of requests.')
       .addText((t) => t.setValue(String(s.maxPerProfile)).onChange(async (v) => { s.maxPerProfile = Number(v) || 0; await save(); }));
 
-    new Setting(containerEl).setName('Seconds between requests')
+    new Setting(containerEl).setName('Seconds between Requests')
       .setDesc('The single most effective setting against rate limiting.')
       .addText((t) => t.setValue(String(s.sleepRequest)).onChange(async (v) => { s.sleepRequest = Number(v) || 0; await save(); }));
 
-    new Setting(containerEl).setName('Include reposts')
+    new Setting(containerEl).setName('Include Reposts')
       .addToggle((t) => t.setValue(s.retweets).onChange(async (v) => { s.retweets = v; await save(); }));
-    new Setting(containerEl).setName('Include replies')
+    new Setting(containerEl).setName('Include Replies')
       .addToggle((t) => t.setValue(s.replies).onChange(async (v) => { s.replies = v; await save(); }));
-    new Setting(containerEl).setName('Include quoted posts')
+    new Setting(containerEl).setName('Include Quoted Posts')
       .addToggle((t) => t.setValue(s.quoted).onChange(async (v) => { s.quoted = v; await save(); }));
-    new Setting(containerEl).setName('Include text-only posts')
+    new Setting(containerEl).setName('Include Text-Only Posts')
       .setDesc('Off makes this a media archiver only — gallery-dl skips posts with no image or video.')
       .addToggle((t) => t.setValue(s.textTweets).onChange(async (v) => { s.textTweets = v; await save(); }));
 
-    containerEl.createEl('h3', { text: 'Notes' });
+    new Setting(containerEl).setName('Notes').setHeading();
 
     const TOKENS = 'Tokens: {{handle}} {{author}} {{date}} {{year}} {{month}}';
 
-    new Setting(containerEl).setName('Archive root')
+    new Setting(containerEl).setName('Archive Root')
       .setDesc('The folder the "archive root" modes below are relative to.')
       .addText((t) => t.setValue(s.archiveRoot).onChange(async (v) => { s.archiveRoot = v.trim(); await save(); }));
 
-    new Setting(containerEl).setName('Where profile notes go')
+    new Setting(containerEl).setName('Where Profile Notes Go')
       .addDropdown((d) => d.addOptions({
-        specified: 'One folder',
-        perProfile: 'A folder per profile',
-        root: 'The archive root',
-        subfolder: 'Subfolder under the archive root',
-        vault: 'Vault root',
+        specified: 'One Folder',
+        perProfile: 'A Folder per Profile',
+        root: 'The Archive Root',
+        subfolder: 'Subfolder under the Archive Root',
+        vault: 'Vault Root',
       }).setValue(s.profileLocationMode).onChange(async (v) => { s.profileLocationMode = v; await save(); this.display(); }));
 
     if (s.profileLocationMode === 'subfolder') {
-      new Setting(containerEl).setName('Profile subfolder').setDesc(TOKENS)
+      new Setting(containerEl).setName('Profile Subfolder').setDesc(TOKENS)
         .addText((t) => t.setValue(s.profileSubfolder).onChange(async (v) => { s.profileSubfolder = v.trim(); await save(); }));
     }
     if (s.profileLocationMode === 'specified' || s.profileLocationMode === 'perProfile') {
-      new Setting(containerEl).setName('Profile folder').setDesc(TOKENS)
+      new Setting(containerEl).setName('Profile Folder').setDesc(TOKENS)
         .addText((t) => t.setValue(s.profileFolder).onChange(async (v) => { s.profileFolder = v.trim(); await save(); }));
     }
 
-    new Setting(containerEl).setName('Where post notes go')
-      .setDesc('"Same folder" and "Subfolder" are relative to the profile note.')
+    new Setting(containerEl).setName('Where Post Notes Go')
+      .setDesc('"Same Folder" and "Subfolder" are relative to the profile note.')
       .addDropdown((d) => d.addOptions({
-        specified: 'One folder',
-        perProfile: 'A folder per profile',
-        same: 'Same folder as the profile note',
-        subfolder: 'Subfolder beside the profile note',
-        vault: 'Vault root',
+        specified: 'One Folder',
+        perProfile: 'A Folder per Profile',
+        same: 'Same Folder as the Profile Note',
+        subfolder: 'Subfolder beside the Profile Note',
+        vault: 'Vault Root',
       }).setValue(s.postLocationMode).onChange(async (v) => { s.postLocationMode = v; await save(); this.display(); }));
 
     if (s.postLocationMode === 'subfolder') {
-      new Setting(containerEl).setName('Post subfolder').setDesc(TOKENS)
+      new Setting(containerEl).setName('Post Subfolder').setDesc(TOKENS)
         .addText((t) => t.setValue(s.postSubfolder).onChange(async (v) => { s.postSubfolder = v.trim(); await save(); }));
     }
     if (s.postLocationMode === 'specified' || s.postLocationMode === 'perProfile') {
-      new Setting(containerEl).setName('Post folder').setDesc(TOKENS)
+      new Setting(containerEl).setName('Post Folder').setDesc(TOKENS)
         .addText((t) => t.setValue(s.postFolder).onChange(async (v) => { s.postFolder = v.trim(); await save(); }));
     }
 
@@ -1255,58 +1263,58 @@ class ArchXSettingTab extends PluginSettingTab {
     const pf = this.plugin.profileFolderFor(sample);
     new Setting(containerEl).setName('For @example, that is')
       .setDesc(`Profile note: ${pf || '(vault root)'}/@example.md\nPost notes: ${this.plugin.postFolderFor(sample, pf) || '(vault root)'}/`);
-    new Setting(containerEl).setName('Post note name')
+    new Setting(containerEl).setName('Post Note Name')
       .setDesc('Tokens: {{author}} {{authorName}} {{date}} {{id}} {{excerpt}}')
       .addText((t) => t.setValue(s.postNoteNameTemplate).onChange(async (v) => { s.postNoteNameTemplate = v; await save(); }));
-    new Setting(containerEl).setName('Write url as a markdown link')
+    new Setting(containerEl).setName('Write url as a Markdown Link')
       .setDesc('On gives [Link](https://x.com/…), matching the hand-made notes. Off gives a bare URL. A sync overwrites whichever form a note already had, so decide before syncing notes you made by hand.')
       .addToggle((t) => t.setValue(s.urlAsLink).onChange(async (v) => { s.urlAsLink = v; await save(); }));
 
-    new Setting(containerEl).setName('x-author links to the profile note')
+    new Setting(containerEl).setName('x-author Links to the Profile Note')
       .setDesc('On writes [[@handle]] on post notes, so one property both names the author and gets you there. Off writes a plain @handle.')
       .addToggle((t) => t.setValue(s.authorAsLink).onChange(async (v) => { s.authorAsLink = v; await save(); }));
 
-    new Setting(containerEl).setName('Post tags')
+    new Setting(containerEl).setName('Post Tags')
       .addText((t) => t.setValue(s.tags.join(', ')).onChange(async (v) => { s.tags = splitList(v); await save(); }));
-    new Setting(containerEl).setName('Profile tags')
+    new Setting(containerEl).setName('Profile Tags')
       .addText((t) => t.setValue(s.profileTags.join(', ')).onChange(async (v) => { s.profileTags = splitList(v); await save(); }));
 
-    containerEl.createEl('h3', { text: 'Profile picture and header' });
+    new Setting(containerEl).setName('Profile Picture and Header').setHeading();
 
-    new Setting(containerEl).setName('Download the icon and banner')
+    new Setting(containerEl).setName('Download the Icon and Banner')
       .setDesc('Saved beside the profile note and written into its icon and banner properties. The URLs come free with the metadata, so this costs two downloads per profile and no extra API calls.')
       .addToggle((t) => t.setValue(s.downloadProfileImages).onChange(async (v) => { s.downloadProfileImages = v; await save(); this.display(); }));
 
     if (s.downloadProfileImages) {
-      new Setting(containerEl).setName('Where the images go')
+      new Setting(containerEl).setName('Where the Images Go')
         .addDropdown((d) => d.addOptions({
-          subfolder: 'Subfolder beside the profile note',
-          same: 'Same folder as the profile note',
-          specified: 'One folder',
-          perProfile: 'A folder per profile',
-          vault: 'Vault root',
+          subfolder: 'Subfolder beside the Profile Note',
+          same: 'Same Folder as the Profile Note',
+          specified: 'One Folder',
+          perProfile: 'A Folder per Profile',
+          vault: 'Vault Root',
         }).setValue(s.profileImageLocationMode).onChange(async (v) => { s.profileImageLocationMode = v; await save(); this.display(); }));
 
       if (s.profileImageLocationMode === 'subfolder') {
-        new Setting(containerEl).setName('Image subfolder').setDesc(TOKENS)
+        new Setting(containerEl).setName('Image Subfolder').setDesc(TOKENS)
           .addText((t) => t.setValue(s.profileImageSubfolder).onChange(async (v) => { s.profileImageSubfolder = v.trim(); await save(); }));
       }
       if (s.profileImageLocationMode === 'specified' || s.profileImageLocationMode === 'perProfile') {
-        new Setting(containerEl).setName('Image folder').setDesc(TOKENS)
+        new Setting(containerEl).setName('Image Folder').setDesc(TOKENS)
           .addText((t) => t.setValue(s.profileImageFolder).onChange(async (v) => { s.profileImageFolder = v.trim(); await save(); }));
       }
 
-      new Setting(containerEl).setName('Icon file name').setDesc('Tokens: {{author}} {{handle}}')
+      new Setting(containerEl).setName('Icon File Name').setDesc('Tokens: {{author}} {{handle}}')
         .addText((t) => t.setValue(s.iconNameTemplate).onChange(async (v) => { s.iconNameTemplate = v; await save(); }));
-      new Setting(containerEl).setName('Banner file name').setDesc('Tokens: {{author}} {{handle}}')
+      new Setting(containerEl).setName('Banner File Name').setDesc('Tokens: {{author}} {{handle}}')
         .addText((t) => t.setValue(s.bannerNameTemplate).onChange(async (v) => { s.bannerNameTemplate = v; await save(); }));
 
       new Setting(containerEl).setName('Convert to WebP')
         .setDesc('X serves JPEG. WebP is roughly half the size. An image that would come out larger keeps its original format.')
-        .addDropdown((d) => d.addOptions({ webp: 'Convert to WebP', keep: 'Keep what X serves' })
+        .addDropdown((d) => d.addOptions({ webp: 'Convert to WebP', keep: 'Keep What X Serves' })
           .setValue(s.profileImageFormat).onChange(async (v) => { s.profileImageFormat = v; await save(); }));
 
-      new Setting(containerEl).setName('Re-download on every sync')
+      new Setting(containerEl).setName('Re-download on Every Sync')
         .setDesc('Off means an image already on disk is left alone, which is what makes a re-run of every profile cheap. Turn it on once to pick up changed avatars, then turn it off.')
         .addToggle((t) => t.setValue(s.refreshProfileImages).onChange(async (v) => { s.refreshProfileImages = v; await save(); }));
 
@@ -1316,22 +1324,22 @@ class ArchXSettingTab extends PluginSettingTab {
         .setDesc(`${this.plugin.imageFolderFor(sampleP, pf2) || '(vault root)'}/${this.plugin.imageStem(s.iconNameTemplate, sampleP)}.webp`);
     }
 
-    containerEl.createEl('h3', { text: 'Access' });
+    new Setting(containerEl).setName('Access').setHeading();
 
     const browsers = this.plugin.detectBrowsers();
-    new Setting(containerEl).setName('Cookies from browser')
+    new Setting(containerEl).setName('Cookies from Browser')
       .setDesc('Posts works without cookies via a guest token. Replies, media and likes do not. Cookies are read at run time and never stored here.')
       .addDropdown((d) => {
         d.addOption('', 'None');
         for (const b of browsers) d.addOption(b.name, b.name);
         d.setValue(s.cookiesFromBrowser).onChange(async (v) => { s.cookiesFromBrowser = v; await save(); });
       });
-    new Setting(containerEl).setName('Or a cookies.txt file')
+    new Setting(containerEl).setName('Or a cookies.txt File')
       .addText((t) => t.setValue(s.cookiesFile).onChange(async (v) => { s.cookiesFile = v.trim(); await save(); }));
-    new Setting(containerEl).setName('Remember what has been fetched')
+    new Setting(containerEl).setName('Remember What Has Been Fetched')
       .setDesc('Keeps a download archive so re-running a profile is cheap.')
       .addToggle((t) => t.setValue(s.useDownloadArchive).onChange(async (v) => { s.useDownloadArchive = v; await save(); }));
-    new Setting(containerEl).setName('Extra gallery-dl arguments')
+    new Setting(containerEl).setName('Extra gallery-dl Arguments')
       .addText((t) => t.setValue(s.extraArgs).onChange(async (v) => { s.extraArgs = v; await save(); }));
   }
 }
