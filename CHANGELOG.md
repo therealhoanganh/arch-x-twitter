@@ -10,6 +10,15 @@
 
 
 
+## 0.11.8
+
+- **The Cookies row says, line by line, what is wrong, what fails and how to fix it.**
+  His words, 2026-09-27, after the PC's missing X login was explained only in the chat: *"You need to explicitly tell this in the setup, so future me can know what's went wrong. And apply this explicit telling in other plugin too."* It said "chrome has no X login. Log in to x.com in chrome, then Test." Now:
+  "chrome is not logged in to X." / "Without a login: only a profile's Posts come back;
+  replies, media, likes and protected accounts fail." / "To fix: open x.com in chrome and
+  log in, then press Test here. It turns green once the login can be read." The same
+  form for no browser picked, a cookie file missing, and cookies that cannot be read.
+
 ## 0.11.7
 
 - The cookie test's advice for a broken keyring says to restart the computer, not to log

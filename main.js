@@ -1194,24 +1194,38 @@ class SetupModal extends Modal {
       r.ffmpeg.found ? `${r.ffmpeg.version.split(' ').slice(0, 3).join(' ')}. ${r.ffmpeg.path}` : 'Needed to merge a video’s picture and sound. Posts and profiles work without it.',
       null);
 
-    // Cookies: which browser, and whether its X login can be read
-    let state = 'warn';
-    let detail = 'None picked. X gives almost nothing to a visitor who is not logged in.';
+    // Cookies: which browser, and whether its X login can be read. Said in so many
+    // words (0.11.8): what is wrong, what fails because of it, and how to fix it and
+    // see that it worked. His words, 2026-09-27: "You need to explicitly tell this in
+    // the setup, so future me can know what's went wrong."
+    const FAILS = 'only a profile’s Posts come back; replies, media, likes and protected accounts fail.';
     const c = r.cookies;
+    let state = 'warn';
+    let lines;
     if (s.cookiesFile) {
       state = fs.existsSync(s.cookiesFile) ? 'ok' : 'missing';
-      detail = state === 'ok' ? `Read from ${s.cookiesFile}.` : `No file at ${s.cookiesFile}.`;
-    } else if (s.cookiesFromBrowser && c) {
-      if (c.ok && c.loggedIn) { state = 'ok'; detail = `Logged in to X in ${s.cookiesFromBrowser}; read from it at each sync, never stored.`; }
-      else if (c.ok) { state = 'warn'; detail = `${s.cookiesFromBrowser} has no X login. Log in to x.com in ${s.cookiesFromBrowser}, then Test.`; }
-      else {
-        state = 'missing';
-        const keyring = /ItemNotFound|Item does not exist/i.test(c.error);
-        detail = `${s.cookiesFromBrowser}’s cookies could not be read: ${c.error}.` + (keyring
-          ? ' The desktop’s keyring has an entry it cannot open. Restart the computer (restarting the apps is not enough), then Test.'
-          : /secretstorage/i.test(c.error) ? ' Update gallery-dl above to add the secretstorage package.' : '');
-      }
+      lines = state === 'ok' ? [`Read from ${s.cookiesFile}.`] : [`No file at ${s.cookiesFile}.`, `Without cookies: ${FAILS}`, 'To fix: export the file again, or empty the cookies file in settings and pick a browser here.'];
+    } else if (!s.cookiesFromBrowser) {
+      lines = ['No browser picked, so gallery-dl runs logged out.', `Without a login: ${FAILS}`, 'To fix: pick the browser you use X in, then press Test.'];
+    } else if (!c) {
+      lines = [`Read from ${s.cookiesFromBrowser} at each sync. Not tested yet: press Test.`];
+    } else if (c.ok && c.loggedIn) {
+      state = 'ok';
+      lines = [`Logged in to X in ${s.cookiesFromBrowser}. gallery-dl reads the login from ${s.cookiesFromBrowser} at each sync; nothing is stored.`];
+    } else if (c.ok) {
+      lines = [`${s.cookiesFromBrowser} is not logged in to X.`, `Without a login: ${FAILS}`, `To fix: open x.com in ${s.cookiesFromBrowser} and log in, then press Test here. It turns green once the login can be read.`];
+    } else {
+      state = 'missing';
+      const fix = /ItemNotFound|Item does not exist|keyring/i.test(c.error)
+        ? 'the desktop’s keyring has an entry it cannot open. Restart the computer (restarting the apps is not enough), then press Test.'
+        : /secretstorage/i.test(c.error)
+          ? 'gallery-dl lacks the secretstorage package it needs on Linux to read the keyring. Press Update on the gallery-dl row above, which adds it, then press Test.'
+          : /not installed/i.test(c.error)
+            ? 'install gallery-dl with the button on its row above, then press Test.'
+            : `check that ${s.cookiesFromBrowser} is the browser you use X in, then press Test.`;
+      lines = [`${s.cookiesFromBrowser}’s cookies could not be read: ${c.error}.`, `Without them: ${FAILS}`, `To fix: ${fix}`];
     }
+    const detail = createFragment((f) => lines.forEach((l, i) => f.createDiv({ text: l, attr: i ? { style: 'margin-top:4px;' } : {} })));
     const cookieRow = this.row('Cookies', state, detail, null);
     if ((r.browsers || []).length && !s.cookiesFile) {
       cookieRow.addDropdown((d) => {
