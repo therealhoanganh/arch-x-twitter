@@ -525,7 +525,7 @@ fine; calling `encodeWebp` is not.
 
 ## The test vault, and one piece of stale state
 
-`TESTFIELD` (`~/Downloads/TESTFIELD`) is where this runs. The plugin is
+`TESTFIELD` (`~/Vaults/TESTFIELD`) is where this runs. The plugin is
 **symlinked** there from `~/Documents/arch-x-twitter` rather than copied, so
 editing the repo and reloading Obsidian picks the change up with no build step.
 
