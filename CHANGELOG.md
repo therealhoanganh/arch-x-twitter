@@ -10,6 +10,10 @@
 
 
 
+## 0.11.10
+
+- A colon in a note's name becomes " - " (or "-" inside a word); it was dropped before. His rule for every ARCH plugin, 2026-10-02: *"Fix it, we need will need to find what games got ":" replace with blank space too, this need to be a universal rule too too!"* A profile note is found under its old name when only that one exists, so his `t-rank` and what he wrote are never left in a note the sync no longer writes to. No profile list in any vault has a label with a colon (TECHNOS's and CHAOS's lists are empty, TESTFIELD's three are handles), so no note changes.
+
 ## 0.11.9
 
 - The setup popup's box heading reads *Filled In for You*: it read *Filled in for You* (found in the check before a compact, 2026-09-27; "in" is capitalized as the particle of *fill in*).

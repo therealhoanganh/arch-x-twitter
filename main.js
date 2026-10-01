@@ -843,10 +843,13 @@ class ArchXArchivePlugin extends Plugin {
   }
 
   async writeProfileNote(profile, posts, folder) {
-    const { renderProfile, sanitizeName, splitNote } = this.lib();
+    const { renderProfile, sanitizeName, legacyName, splitNote } = this.lib();
     const first = posts.find((p) => p.meta && (p.meta.user || p.meta.author));
     const meta = first ? first.meta : { user: { name: profile.handle } };
-    const name = sanitizeName(profile.note || `@${profile.handle}`);
+    let name = sanitizeName(profile.note || `@${profile.handle}`);
+    const older = legacyName(profile.note || `@${profile.handle}`);
+    if (older !== name && !this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/${name}.md`))
+      && this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/${older}.md`))) name = older;
     const notePath = normalizePath(`${folder}/${name}.md`);
     const images = await this.fetchProfileImages(profile, meta, folder);
 
