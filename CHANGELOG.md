@@ -10,6 +10,10 @@
 
 
 
+## Unreleased
+
+- **`CLAUDE.md` rebuilt** (2026-10-09), in his AI rules rebuild (`~/Documents/AI Rules Rebuild Plan 2026-10-08.md`): Rules, Mistakes and Lessons, Where It Stands, one fact per line, 151 lines from 605. The old file is in `~/Documents/_/TRASH/arch-x-twitter/`, and word for word, with every walk-through and measurement, in `~/Documents/_/AI/arch-x-twitter/Details.md`. His word on the drafts: "they are straight forward and you can do this job well."
+
 ## 0.11.10
 
 - A colon in a note's name becomes " - " (or "-" inside a word); it was dropped before. His rule for every ARCH plugin, 2026-10-02: *"Fix it, we need will need to find what games got ":" replace with blank space too, this need to be a universal rule too too!"* A profile note is found under its old name when only that one exists, so his `t-rank` and what he wrote are never left in a note the sync no longer writes to. No profile list in any vault has a label with a colon (TECHNOS's and CHAOS's lists are empty, TESTFIELD's three are handles), so no note changes.

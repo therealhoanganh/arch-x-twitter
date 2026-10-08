@@ -1,605 +1,151 @@
-# ARCH X Twitter — working notes
-
-An Obsidian plugin that archives X/Twitter profiles and single posts into the
-vault as notes, in bulk, driven by `gallery-dl`.
-
-Read `CHANGELOG.md` before changing behaviour. It is the reliable record of why
-things are the way they are, and it is kept current.
-
-## Why gallery-dl and not something else
-
-There is no free X API for timelines any more, so the choices were:
-
-1. **gallery-dl with browser cookies** — chosen. It already knows X's internal
-   endpoints, handles pagination, threads, quoted posts and media, and it is
-   maintained against X's changes by people who do nothing else.
-2. Direct calls to X's internal GraphQL endpoints. No dependency, but the
-   endpoint hashes change without notice and the plugin becomes the thing that
-   has to be maintained against X.
-3. Web Clipper, one profile at a time. That is the manual work this replaces.
-
-The shape is deliberately the same as ARCH YT Playlists: an external tool does
-the fetching, this plugin owns enumeration, note writing and the queue.
-
-## Things that cost hours to learn
-
-**gallery-dl publishes no prebuilt binaries.** Checked against the eight most
-recent releases (up to v1.32.11): every one has zero release assets. The yt-dlp
-approach in ARCH YT Playlists — download a standalone executable into the
-plugin's `bin/` — cannot be copied here.
-
-`installGalleryDl()` builds a private venv at `bin/venv` with the system
-`python3` and pip-installs into it. That keeps the install self-contained and
-removable with the plugin folder, and it does not touch the user's Python.
-Homebrew is the documented manual fallback. Do not "restore" a binary download
-path; there is nothing to download.
-
-**Tweet ids do not survive `JSON.parse`.** X's ids are 19-digit snowflakes and
-`Number.MAX_SAFE_INTEGER` is 16 digits, so `JSON.parse` silently rounds
-`1812255561930731918` to `...920`. This is not theoretical: on the first live run
-every post URL 404'd and the id used for de-duplication was wrong with it.
-
-There is no parser option for this and a reviver is handed the number after the
-damage, so `quoteBigIds()` rewrites id-shaped fields to strings in the raw text
-before parsing. Every id in this plugin is a **string** from that point on. Do
-not "tidy" them back to numbers, and do not compare an id with `==` against
-something that has been through `Number()`.
-
-**A tweet with no image produces no `Url` row at all.** Even with
-`extractor.twitter.text-tweets=true`, a text-only post arrives as a **Directory**
-row (type 2) carrying the full metadata including `content`; only media produce
-`Url` rows (type 3). Measured on one live timeline: 66 posts → 66 Directory rows
-and 3 Url rows. Reading `Url` rows alone — which is what a media downloader's
-output looks like it should mean — drops almost every post.
-
-**`--range` limits files. `--post-range` limits posts.** `--range 1-3` on a
-timeline returned three media files and sixty-six posts. "Most recent N posts"
-has to use `--post-range`; using `--range` for it silently fetches the whole
-timeline.
-
-**A bare `x.com/<name>` never returns posts.** It maps to gallery-dl's `user`
-extractor, which emits a single **Queue** row (type 6) handing the timeline URL
-onward, and exits 0. `profileUrl()` therefore always appends an explicit suffix,
-and `syncProfile` treats "queue rows and no items" as an error rather than as an
-empty timeline.
-
-**An error is not an error exit.** A refused timeline comes back as exit code 0,
-empty stderr, and `[-1, {"error": "AuthRequired", ...}]` on stdout. Checking the
-exit code reports "0 posts, fine" for a profile that said no. `parseDumpJson`
-returns `errors` separately and `syncProfile` throws on it.
-
-**Only Posts works without cookies.** gallery-dl fetches a guest token by itself,
-which is enough for `/timeline` and `/tweets`. `/with_replies`, `/media` and
-`/likes` return `AuthRequired` without a logged-in session. The settings
-dropdowns label these, and `explain()` says which setting fixes it.
-
-**`author` and `user` are different people.** In gallery-dl's twitter metadata,
-`author` wrote the post and `user` owns the timeline it was found on. On a repost
-they differ, and using `user` files someone else's words under your subject's
-name. `authorOf()` prefers `author`; keep it that way.
-
-**One post can produce several `Url` entries** — one per photo — so `-j` output
-is not one row per post. `groupByTweet()` folds them back together by
-`tweet_id`. Counting rows and calling that a post count is wrong by a factor of
-up to four.
-
-**`--config-ignore` is passed on every call, deliberately.** Without it
-gallery-dl reads `~/.config/gallery-dl/config.json`, so a user's own config
-silently overrides what the settings tab says and the plugin's behaviour becomes
-unreproducible. If a config file is ever wanted, write one and pass `--config`.
-
-**The post index is built once per sync run.** `findByPostId` used to scan every
-markdown file in the vault; at 150 profiles × 200 posts that is 30,000 full-vault
-scans. `buildPostIndex()` runs once and is updated as notes are written, because
-`metadataCache` has not seen a note created moments earlier — the same trap ARCH
-YT Playlists hit with `byId`.
-
-**An existing post note is never rewritten.** Like and repost counts change
-constantly; refreshing them would rewrite the entire archive on every sync and
-make the vault's git history useless. Identity is `x-post-id`, not the filename,
-so changing the name template does not create duplicates.
-
-## Where notes go
-
-Two settings, each with the same five-mode dropdown the other ARCH plugins use
-for folders. The vocabulary is shared on purpose; the **anchor** is what differs:
-
-- A **profile note** is placed relative to the archive root, so its modes are
-  `vault | root | subfolder | specified | perProfile`.
-- A **post note** is placed relative to *its own profile note*, so `same` and
-  `subfolder` mean something there and `root` does not:
-  `vault | same | subfolder | specified | perProfile`.
-
-Defaults are `Twitter/Profiles` and `Twitter/Posts`. Both accept `{{handle}}`,
-`{{author}}`, `{{date}}`, `{{year}}` and `{{month}}`; the date tokens are
-evaluated at sync time, not from the post, because a folder that moved when an
-old post was backfilled would scatter one profile across several trees.
-
-The settings tab prints the resolved paths for a sample handle. Two folder
-settings with five modes each is easy to get wrong silently, and a wrong one
-writes hundreds of notes into the wrong place before anyone notices.
-
-## Coupling to ARCH After Clipping — READ THIS
-
-**After Clipping processes every note this plugin writes, and it is expensive.**
-Observed on the first Obsidian run: After Clipping picked up each new post note,
-read its `url` from raw frontmatter, and ran a full yt-dlp metadata probe against
-`x.com/<user>/status/<id>` — about **3 seconds per note** — then actually
-downloaded a video and extracted an mp3 into `X/Profiles/@AnhPhuNguyen1/Medias/`.
-
-At the intended scale, 150 profiles × 200 posts, that is a yt-dlp process per
-post and tens of thousands of probes nobody asked for.
-
-After Clipping already has the mechanism to avoid this: `otherArchKeys`, which
-makes it skip any note carrying one of the named frontmatter keys. Its default is
-now `['yt-playlist', 'dl-all', 'x-author', 'x-name']`, and its `loadSettings`
-appends missing markers to a *saved* list rather than replacing it — a saved list
-would otherwise shadow the default and keep the probing going.
-
-**`x-author` and `x-name` are therefore load-bearing across two plugins.**
-
-Since the profile template was slimmed, they are no longer both on both note
-types: a post note carries `x-author` and `x-name`, a **profile note carries only
-`x-name`** — `x-author` was dropped from `profileNoteOrder` because on a profile
-note it restates the title. `otherArchKeys` matches on *any* of its names, so one
-marker is enough.
-
-But it means **`x-name` is the only thing keeping After Clipping off profile
-notes.** Removing it from `profileNoteOrder`, or renaming it, restarts the yt-dlp
-storm for every profile note, and the symptom appears in After Clipping's log
-rather than this one. The 27 hand-made notes are covered by the same property,
-which is why they were renamed from `name` to `x-name`. Renaming either one, or dropping it
-from `postNoteOrder` / `profileNoteOrder`, silently restarts the yt-dlp storm —
-and the symptom appears in After Clipping's log, not this one.
-
-`x-post-id` and `x-profile-id` are *not* part of that contract and are planned
-for removal. `buildPostIndex` therefore indexes a note by its `x-post-id` **and**
-by the id parsed out of its `url`, so de-duplication survives their removal. Do
-not reduce that to a single key without checking what the notes on disk carry.
-
-## What the profile template is for
-
-A profile note is an **anchor to link to from other notes**, not a statistics
-page. Follower and post counts were dropped for that reason: filtering is done by
-`t-rank`, a hand-assigned subjective ranking, not by counts the plugin could
-fetch. So the plugin's job on a profile note is the identity and the images, and
-then to stay out of the way of the human's own properties.
-
-That is the reasoning behind the default `url, icon, banner, t-rank, x-name,
-tags`. `t-rank` is named although this plugin never produces it — naming it is
-what positions it when the existing note carries one.
-
-`urlAsLink` covers the last difference from the hand-made notes: they write
-`url` as `[Link](https://x.com/…)` rather than a bare URL. It is a setting rather
-than a guess because a sync overwrites whichever form the note already had.
-
-## `x-author` is a link, and it is built from the author
-
-On a post note `x-author` is a **wikilink to the author's profile note**,
-`[[@AnthropicAI]]`, not a bare handle. One property both names the author and
-gets you there. It replaced a pair that said the same thing twice: a bare
-`x-author` string beside an `x-profile` link.
-
-**It is built from `author`, never from the profile being synced.** A quoted post
-sitting on someone's timeline was written by someone else, and handing it the
-synced profile's link credits the wrong person — the same `author` vs `user`
-trap as everywhere else, except that here it would be silently wrong in a
-property a human reads. What used to be `x-profile` is now **`shared-by`**, and it is written **only when
-the post is not the profile owner's own** — a repost or a quote that appeared on
-their timeline. On a post someone wrote themselves it would have said they shared
-their own post, which is noise. That condition is what makes the property
-legible: if `shared-by` is there, someone passed the post on.
-
-The handle comparison is case-insensitive, because X is not consistent about
-capitalisation between `author.name` and the timeline it came from.
-
-The target note often will not exist — an unresolved link to an unarchived
-account is correct, and still useful.
-
-So a reposted note reads `x-author: [[@AnthropicAI]]` — who wrote it — beside
-`shared-by: [[@Hesamation]]` — who put it in front of you.
-
-`x-name` is not on post notes for the same reason as before: the display name is
-one click away in the profile note. It remains the only After Clipping marker on **profile**
-notes, where `x-author` was dropped.
-
-## A repost is two tweets, and mixing them up is silent
-
-On a repost, gallery-dl hands over **two different tweets** in one row:
-
-```
-tweet_id    the repost itself, owned by whoever reposted
-retweet_id  the ORIGINAL, owned by `author`
-user        the reposter          author  the original writer
-```
-
-Building `x.com/<author>/status/<tweet_id>` pairs one account's handle with
-another's id. **It does not fail.** X returns 307 and redirects to
-`x.com/<reposter>/status/<tweet_id>`, so the link works and quietly takes you to
-the repost instead of the post. Verified by following the redirects:
-`x.com/SebastienBubeck/status/<tweet_id>` bounces to Hesamation, while
-`x.com/SebastienBubeck/status/<retweet_id>` resolves directly.
-
-`canonicalId()` is the answer: `retweet_id` when there is one, `tweet_id`
-otherwise. It is used for the URL, for `x-post-id`, for the note name's `{{id}}`
-and — importantly — for **de-duplication**, so one original reposted by several
-archived profiles becomes **one note**, not one per reposter. Grouping in
-`groupByTweet` still keys on `tweet_id`, because that is what a post's media rows
-share; identity and grouping are different questions.
-
-**`retweet_id` is `0` on everything that is not a repost** — a *number* zero, not
-absent and not the string `"0"`. `quoteBigIds` only rewrites ids of 16 digits or
-more, so this one stays numeric while a real one becomes a string. Any check has
-to cope with both types, which is why it reads
-`rt && String(rt) !== '0'`.
-
-**A repost's `content` starts `RT @handle: `**, which repeats what `x-author` and
-`shared-by` already say — and it landed in the note's filename too. Stripped in
-`expandUrls`. The body keeps the original's full text, which gallery-dl expands
-for us.
-
-For scale: with `retweets` and `quoted` both on, **16 of 40** posts from one
-timeline were someone else's. Reposts are a large fraction of an archive, and
-`shared-by` is what makes them filterable rather than noise.
-
-## The order setting is the whole template contract
-
-`postNoteOrder` and `profileNoteOrder` decide **what is written at all**, not just
-the sequence. A property this plugin produces that is not on the list is
-**dropped**. That is how the note is slimmed to the properties actually wanted,
-and it is why `x-profile-id`, `following` and `verified` stopped appearing without
-any code change.
-
-This is deliberately *different* from what a name on the list but not produced
-does — that is simply skipped — and different again from a property found on the
-**existing note**, which is never the plugin's to delete. See below.
-
-**A profile note is rewritten on every sync, and that used to destroy hand-added
-properties.** `vault.modify` replaced the whole file, so `t-rank: 5. Mentor` — a
-human judgement no sync can reconstruct — and any hand-written body were gone on
-the next run. It never actually bit, because the 27 hand-made notes had not been
-synced yet, but syncing one would have.
-
-`splitNote()` now reads the existing note first and keeps each property as its
-**raw lines** rather than parsing and re-serialising, so a value this code does
-not understand survives byte for byte. A kept property named in the order list is
-written at that position; one that is not is appended after the ordered part. An
-existing non-empty body is preserved as-is — a bio refresh is worth less than
-whatever a human wrote under it.
-
-## Saved settings shadow defaults, and that made four rounds of work invisible
-
-`this.settings = Object.assign({}, DEFAULT_SETTINGS, saved)` means **saved wins**.
-So changing a default in `DEFAULT_SETTINGS` changes nothing for any vault that has
-already run the plugin — which is every vault that matters.
-
-This is not theoretical and it is not new: ARCH After Clipping's changelog records
-the same trap. Here it swallowed the slimmed profile template, the slimmed post
-template, `shared-by`, the tag rename and the folder layout, all at once. On disk
-the code was right, in the vault nothing changed, and the obvious conclusion —
-"the update is not being applied" — was wrong. The update was applied; the
-settings were overriding it.
-
-`TEMPLATE_SETTINGS` names the settings that describe **what the plugin writes**
-rather than a preference someone tuned: the two order strings, the folder modes
-and folders, the image naming, the tags, the link styles. `settingsVersion` is
-bumped whenever those change, and `loadSettings` resets exactly that list once per
-bump. Profiles, cookies, rate limits and binary paths are never touched, and
-there is a **Reset templates and folders** button in settings for doing it by
-hand.
-
-**Do not fix this by editing `data.json` while Obsidian is running.** A running
-plugin holds the whole settings object in memory and writes it back on any save,
-so a hand-edited file is silently reverted — and, because migrations now persist,
-reverted to values a *stale* copy of the code produced. That wasted a full round
-of debugging. Edit settings through the settings tab, or quit Obsidian first.
-
-`loadSettings` logs the resolved profile folder and both templates on every load,
-so what is actually in force is visible in the console rather than inferred.
-
-## Settings migrations must persist
-
-`loadSettings` compares the settings it built against what was on disk and saves
-when they differ. Without that, a migration ran **in memory on every load and
-never reached `data.json`**, so the settings tab showed one thing and the file
-said another until an unrelated change triggered a save. That is exactly what
-happened with the `x-author-name` → `x-name` rename: it worked at runtime, and
-`data.json` kept the old string for days.
-
-Because the order list now decides whether a property is written at all, adding a
-property to the plugin means **inserting it into a saved order string** — leaving
-it to be appended is no longer harmless, and leaving it out drops it. That
-insertion happens after `url`, which every order string starts with.
-
-One migration to be careful with: the 0.1.0 layout migration reproduces the old
-`X/Profiles` folders exactly, on purpose, so an upgrade does not silently move
-files. For this vault that was the wrong answer — the whole point of the change
-was to move to `Twitter/` — and `data.json` was edited by hand to the new
-defaults instead. Both behaviours are defensible; the migration is right for
-someone with an established archive and wrong for someone who wants the new
-layout, and there is no way to tell those apart from inside `loadSettings`.
-
-## Two lists, and why
-
-`profiles` is a handful of accounts that each get a **row**: their own timeline,
-their own tags, their own sync button. `bulkList` is the long tail — hundreds of
-handles in a **textarea**, sharing one set of options.
-
-One row per profile does not survive the intended scale. A few hundred `Setting`
-objects makes the settings tab slow to open and impossible to search, and there
-is nothing per-profile worth configuring for most of them. So the many live as
-text and the few that need settings stay as rows.
-
-The list is edited in a popup behind *Manage…* (`ListModal`, 0.11.3; the same
-class in YT Playlists, After Clipping and Browser History), chosen by him on
-2026-09-27 over a box that folds open in place. The settings card shows only the
-count. It saves on *Save*, or when the popup is closed with an edit in it; only
-*Cancel* discards. Until 0.11.3 it was a textarea behind a `<details>`, saving on a
-400ms debounce and re-rendering on blur.
-
-`bulkList` tolerates `@handle`, a bare handle, or a full URL, skips blank lines,
-and **ignores lines starting with `#`** so the list can carry its own notes.
-
-**A handle in both lists is synced once, and the row wins**, because the row is
-the one carrying deliberate settings. `allProfiles()` is where that is decided.
-
-## Adding a profile without syncing posts
-
-`syncProfile(profile, { profileOnly: true })` writes the profile note and its
-images and no post notes. It exists because adding an account used to mean
-archiving at least one post, which is not what "add this person so I can link to
-them" means.
-
-X exposes no account-details endpoint through gallery-dl, so **one post is still
-fetched** — the author block rides along on every row — it is simply not written.
-The download archive is deliberately **skipped** in that mode: recording that post
-as seen would make a later real sync silently miss it.
-
-## Rate limiting, which is the real constraint
-
-X rate-limits an authenticated session aggressively, and 150 profiles is a lot of
-requests. Three settings exist for this and all three matter:
-
-- `sleepRequest` (`--sleep-request`) — the most effective one
-- `maxPerProfile` (`--post-range 1-N`) — fetch recent posts, not whole timelines
-- `useDownloadArchive` (`--download-archive`) — so a re-run is cheap
-
-A 429 is reported through `explain()` with the fix rather than as a raw stderr
-dump, because the raw message does not say what to do about it.
-
-## Cookies
-
-Read from the browser at the moment of each run via `--cookies-from-browser`;
-nothing is stored by the plugin. Safari is detected but deprioritised in
-`autoConfigure` — its cookie store needs Full Disk Access, which fails in a way
-that looks like a login problem rather than a permissions one.
-
-Note that `data.json` holds the cookie *source* and the profile list, which is
-why it is gitignored.
-
-## The `lib()` split
-
-Nothing in `lib/` may `require('obsidian')`. That module is injected into
-`main.js`'s scope only; a file loaded from disk by plain Node cannot resolve it,
-and `build.mjs` lists `obsidian` as external so a stray require fails loudly at
-build time rather than silently at load time.
-
-`lib()` takes `ARCH_LIB` when the bundle defined it and falls back to reading
-`lib/` from disk when it did not. That fallback keeps the repo runnable unbuilt:
-edit, reload in Obsidian, no build step. Keep both halves.
-
-**Editing `lib/` and reloading the plugin was silently running the OLD code.**
-Electron's `require()` caches by resolved path, and disabling and re-enabling a
-plugin does **not** clear that cache — only a full app reload did. So the disk
-fallback, whose whole purpose is the edit-and-reload loop, quietly did nothing
-for `lib/`, and it looked exactly like the edit had not been saved.
-
-`dropLibFromRequireCache()` deletes the cached entries before requiring. It
-matches the plugin folder **and its realpath**, because during development that
-folder is a symlink into the repo and `require` resolves symlinks, so the cached
-keys live under the repo path rather than under `.obsidian`.
-
-**It walks `require.cache`, and that may be the wrong cache.** ARCH Recreations
-found that the `require` a plugin is handed is Obsidian's wrapper, whose `.cache` is
-not Node's, and walks `window.require.cache` instead. Not tested here; open work in
-`../CLAUDE.md`.
-
-Changes to `main.js` were never affected — Obsidian re-evaluates that itself.
-That asymmetry is what made this confusing: some edits took, others did not.
-
-
-## The plugin id is part of several absolute paths
-
-Renaming the plugin (`arch-x-archive` → `arch-x-twitter`) moved the folder
-Obsidian loads from, the folder `data.json` lives in, and `bin/venv`. The venv is
-the one that breaks loudly: **a Python venv hardcodes its own absolute path into
-every script's shebang**, so after a move `gallery-dl` fails with *bad
-interpreter*, not *not found*. It has to be recreated, not moved.
-
-`ensureGalleryDl()` now probes the configured binary once per session and
-re-detects if it will not run. A configured absolute path stops working for
-reasons that have nothing to do with the user — a rename, a moved vault, a BRAT
-reinstall somewhere else — and reporting "install gallery-dl" when it is sitting
-right there is the wrong answer.
-
-**Re-detecting does not cover a renamed vault.** When the vault itself is renamed,
-the venv in `bin/venv` is broken in the same way and there is no working copy to
-find, so `ensureGalleryDl()` returns false. The TECHS → TECHNOS rename left it
-broken in TECHNOS and `~/Documents` (whose venv was a copy of TECHNOS's) until
-2026-09-25. Recreate the venv in place (`python3 -m venv --clear`, then `pip
-install gallery-dl`) and set `galleryDlPath` to the vault's own copy; Hoang Anh's
-rule is to fix this at once when it is found. Making the plugin reinstall a broken
-venv by itself is not built.
-
-## Each computer has its own gallery-dl (0.11.4)
-
-`bin/venv` is not mirrored between the Mac and the PC (`**/bin/venv` in the Syncthing
-ignore list): a venv holds absolute paths and machine-specific files. So each computer
-builds its own, in every vault that has the plugin, and `galleryDlBin()` prefers that copy
-over the synced `galleryDlPath`. The PC has none until one is built: that is what threw
-`spawn … ENOENT` on 2026-09-27. On Ubuntu, `python3 -m venv` needs the `python3-venv`
-package (sudo), so the venvs there were made with `uv venv` and `uv pip install
-gallery-dl secretstorage`, and *Set Up External Tools* falls back to `uv` the same way.
-**Chrome's cookies on the PC also depend on its GNOME keyring**, which on 2026-09-27 held two
-broken entries that stopped both gallery-dl and yt-dlp from finding Chrome's key, until a
-log out and back in (restarting the apps is not enough); advise a restart instead, since the
-new session after that logout hit NVIDIA GPU errors and the PC had to be reset. *Set Up External Tools* tests the
-cookies and names this fault if it comes back.
-
-## Releasing
-
-`npm run build` writes `dist/main.js` and `dist/manifest.json`. Verify a release
-the way it actually installs: copy only those two files into a folder with no
-`lib/`, and load it.
-
-## The profile note this is aiming at
-
-The ~27 hand-clipped profile notes in `TESTFIELD/Twitter/Profiles/` are the real
-target. This plugin does not yet produce them. (Checked 2026-09-23: those 27 are in
-`TESTFIELD`'s trash now; the 182 in TECHNOS have the same shape, see *The test
-vault* below.) One, in full:
-
-```yaml
-url: "[Link](https://x.com/karpathy)"
-icon: "[[@karpathy Icon.webp|Icon]]"
-banner: "[[@karpathy Banner.webp|Banner]]"
-t-rank: 5. Mentor
-x-name: Andrej Karpathy
-tags:
-  - twitter-profile
-```
-
-Four differences from what `renderProfile` writes, none of them yet reconciled:
-
-- **`icon` and `banner`** — **built, see below.**
-- **`url` is a markdown link**, `"[Link](https://x.com/karpathy)"`, not a bare
-  URL. Anything parsing `url` back out has to cope with both forms.
-- **`t-rank`** is a hand-assigned ranking. A sync must never overwrite it, which
-  is a good reason for the "never rewrite an existing note" rule to stay.
-- **`tags` is `twitter-profile`**, not the `x-profile` default here.
-
-The frontmatter *order* settings already exist, so matching this is mostly a
-matter of names, plus the image download. Do not "fix" the plugin's defaults to
-match this template without checking: the archiving strategy these notes feed has
-not been decided yet, and that decision drives the template.
-
-## Profile picture and header
-
-Downloaded on every sync, written into the note's `icon` and `banner` properties
-as aliased wikilinks, matching the hand-made notes exactly. Defaults put them in
-`Twitter/Profiles/Images` as `@handle Icon.webp` / `@handle Banner.webp` — the
-same names the 27 existing notes use, so a first sync of those profiles reuses
-what is already on disk and downloads nothing.
-
-**The URLs cost nothing.** gallery-dl's metadata carries `profile_image` and
-`profile_banner` on every row, so no extra request is needed to find them. Two
-measured details, both in `profileImageUrls()`:
-
-- `profile_image` is **already** the full-size URL. gallery-dl strips the
-  `_normal` suffix itself — that variant is a 1.8 KB thumbnail against 25 KB for
-  the real one. The strip in the code is belt-and-braces for any extractor that
-  does not. *(An earlier version of this file claimed the opposite. It was wrong.)*
-- `profile_banner` is a **base** URL and serves a small image on its own: 21 KB
-  bare, 81 KB with `/1500x500` appended. **Both return 200**, so getting this
-  wrong fails silently as a blurry header rather than as an error.
-
-**Whether an image is already here is decided by looking for the file**, under
-any extension it might carry — not by a property, and not by assuming `.webp`.
-One of the existing profiles has a `.png` icon where every other has `.webp`;
-checking only the target extension would re-download it on every sync forever.
-Same discipline as ARCH YT Playlists' download check, and the reason re-running
-150 profiles does not re-fetch 300 images.
-
-`refreshProfileImages` exists to pick up a changed avatar and is **off** by
-default. It re-downloads all of them, which is the expensive path.
-
-A failure here never fails the sync — a missing avatar is not a reason to lose a
-profile's posts — so each image is caught separately and logged.
-
-`requestUrl` is used rather than `fetch`: it is Obsidian's own client, so it is
-not subject to the renderer's CORS rules and follows redirects.
-
-`lib/image.js` is the one file in `lib/` that **cannot run under plain Node** — it
-uses `OffscreenCanvas`, which exists only in the renderer. Requiring it there is
-fine; calling `encodeWebp` is not.
-
-## The test vault, and one piece of stale state
-
-`TESTFIELD` (`~/Vaults/TESTFIELD`) is where this runs. The plugin is
-**symlinked** there from `~/Documents/arch-x-twitter` rather than copied, so
-editing the repo and reloading Obsidian picks the change up with no build step.
-
-**There are ~165 notes under `X/Profiles/` from before the folder settings
-existed**, written by 0.1.0 under the old `X/Profiles` default and still carrying
-`x-author-name` instead of `x-name`. The plan is to delete `X/` and re-sync into
-the `Twitter/Profiles` and `Twitter/Posts` defaults; it had not been done at the
-time of writing. Do not treat those notes as evidence of current behaviour, and
-check whether `X/` still exists before concluding anything from what is on disk.
-
-**Checked 2026-09-23: `X/` and `Twitter/` are both in `TESTFIELD`'s trash**, so the
-test vault holds no archive now. The profile notes in use are 182 in
-`⏻ TECHNOS/Twitter/Profiles`, the hand-made shape (tag `x-profile`, `t-rank`, icon and
-banner), with no post notes; the plugin has no saved settings there, so it has not
-run in that vault. 29 of them carry `name` rather than `x-name`, so the After
-Clipping marker does not cover them. That is harmless today, because After
-Clipping's x.com host pattern matches only `/status/` URLs and a profile's `url` is
-not one; it would matter if that pattern were ever widened.
-
-Enumeration has run there against several real profiles with cookies from Chrome
-and worked. Never exercised: the setup modal's install button, the bulk-add
-modal, `promptForUrl`, and every folder mode other than the default.
-
-## Not yet built
-
-This is a scaffold with a working enumeration and note-writing path. Still open:
-
-- **Media download.** `downloadMedia`, `mediaLocationMode`, `mediaSubfolder` and
-  `mediaFolder` are in the settings object but nothing reads them. The second
-  pass — run gallery-dl without `--dump-json` into a temp dir, move files into
-  the vault, write `media` and `dl-ed` into the note — is the next piece. Copy
-  the disk-check discipline from ARCH YT Playlists: whether a download happened
-  is decided by looking for the file, never by trusting a property.
-- **Threads.** `conversation_id` is in the metadata but nothing groups a thread
-  into one note.
-- **Single-post URLs.** `promptForUrl` currently treats any x.com URL as a
-  profile. A `/status/` URL should archive just that post.
-- **Post note templates.** The frontmatter and body are a first guess. The
-  archiving strategy this feeds — what an AI assistant should be able to do with
-  a few thousand archived posts — has not been decided yet, and the template
-  should not be polished until it has.
-- **Only one profile has been run, at five posts.** The claims above are measured
-  against gallery-dl 1.32.11 and a live `x.com/naval` timeline: URL forms, message
-  types, `--post-range`, the in-band error, the guest token, and the id rounding.
-  What has *not* been exercised: a large `--post-range`, the download archive,
-  rate limiting under 150 profiles, protected accounts, threads, or any of this
-  running inside Obsidian rather than through `lib/` in Node.
-
-  Since updated: enumeration and note writing have now run inside Obsidian across
-  several profiles with cookies from Chrome, and worked.
-
-## Rewriting history means repointing every tag
-
-If commits are ever rewritten — an author correction, stripping a trailer —
-moving `main` is not enough. **A tag is a reference**, so any tag left on an old
-commit keeps that commit alive on GitHub, and it keeps whatever was wrong with it
-alive too: the old author, the old trailer, the contributor entry derived from
-them. This has already caused an afternoon of confusion, where `main` was clean
-and the contributors list was not.
-
-The steps, in order:
-
-1. Note which commit each tag points at **before** rewriting, by commit subject —
-   the SHAs are about to change.
-2. Rewrite, e.g. `git rebase --root --exec '<amend script>'`.
-3. Move every local tag onto its new equivalent: `git tag -f <tag> <new sha>`.
-4. `git push --force-with-lease origin main`.
-5. Repoint each remote tag:
-   `gh api --method PATCH repos/<owner>/<repo>/git/refs/tags/<tag> -f sha=<new> -F force=true`
-6. Verify no ref is orphaned:
-   `gh api repos/<owner>/<repo>/git/refs --jq '.[] | "\(.ref) \(.object.sha)"'`
-   — every one should be an ancestor of `main`.
-
-Release assets survive a tag move; they are attached to the release, not the
-commit. GitHub's contributors widget is cached separately and lags behind all of
-this, so check `git/refs` rather than the web page to know whether the work is
-actually done.
+# ARCH X Twitter
+
+## Rules
+
+### What It Is
+
+- An Obsidian plugin that archives X/Twitter profiles and single posts into the vault as notes, in bulk, through `gallery-dl`.
+- Shaped like YT Playlists on purpose: an outside tool fetches, the plugin owns the listing, the notes and the queue.
+- gallery-dl with browser cookies, because X has no free timeline API and gallery-dl is kept up against X's changes by others.
+- Installed only in CHAOS, TECHNOS and `~/Documents`, his choice. Never add it elsewhere.
+- Read `CHANGELOG.md` before changing behaviour. It records why each thing is the way it is.
+- The old file word for word, with the measurements: `Documents/_/AI/arch-x-twitter/Details.md`.
+
+### gallery-dl
+
+- gallery-dl publishes no prebuilt binaries. `installGalleryDl()` builds a private venv at `bin/venv`. Never restore a binary download.
+- A venv hardcodes its own absolute path. After a plugin or vault rename it fails with "bad interpreter" and must be recreated, not moved.
+- `ensureGalleryDl()` checks the binary once per session and looks again if it will not run.
+- A renamed vault leaves no working copy to find. Recreate the venv in place (`python3 -m venv --clear`, then `pip install gallery-dl`) and point `galleryDlPath` at it, at once.
+- `bin/venv` is not mirrored. Each computer builds its own, and `galleryDlBin()` prefers it over the synced `galleryDlPath`.
+- On the PC, venvs are made with `uv venv` and `uv pip install gallery-dl secretstorage`. Set Up External Tools falls back to `uv`.
+- `--config-ignore` goes on every call, so his own gallery-dl config never overrides the settings tab.
+
+### Reading What gallery-dl Returns
+
+- X's ids are 19 digits and `JSON.parse` rounds them. `quoteBigIds()` turns id fields into strings before parsing. Every id is a string from then on. Never compare one with `==` against a `Number()`.
+- A text-only post arrives as a Directory row (type 2). Only media make Url rows (type 3). Reading Url rows alone drops almost every post.
+- `--post-range` limits posts. `--range` limits files. "Most recent N posts" uses `--post-range`.
+- A bare `x.com/<name>` returns one Queue row (type 6) and no posts. `profileUrl()` always adds a suffix, and "queue rows and no items" is an error.
+- A refused timeline exits 0 with `[-1, {"error": "AuthRequired", ...}]` on stdout. `parseDumpJson` returns errors apart, and `syncProfile` throws on them.
+- Without cookies only Posts works. Replies, Media and Likes need a login. `explain()` says which setting fixes it.
+- `author` wrote the post, `user` owns the timeline it was found on. `authorOf()` prefers `author`; keep it.
+- One post can give several Url rows, one per photo. `groupByTweet()` folds them by `tweet_id`.
+
+### Reposts
+
+- A repost row holds two tweets: `tweet_id` is the repost, `retweet_id` the original.
+- `x.com/<author>/status/<tweet_id>` does not fail. X redirects it to the repost, silently.
+- `canonicalId()` is `retweet_id` when there is one, else `tweet_id`. It is the URL, `x-post-id`, the name's `{{id}}` and the de-duplication key. Grouping still keys on `tweet_id`.
+- So one original reposted by several archived profiles is one note.
+- `retweet_id` is the number 0 on a non-repost. The check reads `rt && String(rt) !== '0'`.
+- A repost's `content` starts `RT @handle: `. `expandUrls` strips it.
+
+### Post Notes
+
+- An existing post note is never rewritten. Like counts change constantly, and rewriting would flood the vault's git history.
+- Identity is `x-post-id`, not the file name, so a new name template makes no duplicates.
+- `buildPostIndex()` runs once per sync and is updated as notes are written. The cache has not seen a note made moments earlier.
+- It indexes by `x-post-id` and by the id in `url`, so `x-post-id` can be removed later. Never reduce it to one key without checking the notes on disk.
+- `x-author` is a wikilink to the author's profile note, built from `author`, never from the profile being synced.
+- `shared-by` names the profile only when the post is not its owner's own: a repost or a quote. Handles are compared ignoring case.
+- An unresolved `x-author` link to an unarchived account is correct.
+
+### Profile Notes
+
+- A profile note is an anchor to link to, not a statistics page. No follower or post counts.
+- He ranks profiles by hand with `t-rank`. A sync never touches it.
+- The default order is `url, icon, banner, t-rank, x-name, tags`. `t-rank` is named so it keeps its place.
+- `urlAsLink` writes `url` as `[Link](https://x.com/…)`, like his hand-made notes.
+- A profile note is rewritten on every sync. `splitNote()` keeps every existing property as its raw lines, and keeps a non-empty body as it is.
+- `syncProfile(profile, { profileOnly: true })` writes the profile note and images, no posts. One post is still fetched for the author block, and the download archive is skipped so a later sync does not miss it.
+- Icon and banner go in `Twitter/Profiles/Images` as `@handle Icon.webp` and `@handle Banner.webp`, as aliased wikilinks.
+- `profile_image` is already full size. `profile_banner` needs `/1500x500`, or it is a small image, and both return 200.
+- Whether an image is here is decided by looking for the file under any extension, never by a property.
+- `refreshProfileImages` is off by default. It downloads every image again.
+- An image failure never fails the sync. Each is caught and logged.
+- `lib/image.js` uses `OffscreenCanvas`, so `encodeWebp` cannot run under plain Node.
+
+### After Clipping
+
+- After Clipping processes every note with a `url` and sends x.com posts to yt-dlp, about 3 seconds each.
+- `x-author` and `x-name` keep it off. They are in its `otherArchKeys`.
+- A post note carries both. A profile note carries only `x-name`, which is all that keeps After Clipping off it.
+- Renaming either, or dropping one from `postNoteOrder` or `profileNoteOrder`, restarts the probing. The symptom shows in After Clipping's log, not here.
+- `x-post-id` and `x-profile-id` are not part of that contract.
+
+### Where Notes Go
+
+- Two folder settings, each with the family's five modes. A profile note is placed from the archive root (`vault | root | subfolder | specified | perProfile`), a post note from its profile note (`vault | same | subfolder | specified | perProfile`).
+- Defaults: `Twitter/Profiles` and `Twitter/Posts`. Date tokens are evaluated at sync time, so a backfill never scatters one profile.
+- The settings tab prints the resolved paths for a sample handle. A wrong folder writes hundreds of notes before anyone notices.
+
+### The Order Settings Decide What Is Written
+
+- `postNoteOrder` and `profileNoteOrder` decide what is written. A property the plugin makes that is not listed is dropped.
+- A listed name the plugin does not make is skipped. A property already on the note is never the plugin's to delete.
+- Adding a property to the plugin means inserting it into saved order strings, after `url`.
+
+### Settings
+
+- Saved settings win over defaults. `TEMPLATE_SETTINGS` lists the settings that describe what is written, and `loadSettings` resets them once per `settingsVersion` bump.
+- Profiles, cookies, rate limits and tool paths are never reset.
+- Reset Templates and Folders does it by hand.
+- `loadSettings` saves when its result differs from the file, so a migration reaches `data.json`.
+- `loadSettings` logs the profile folder and both templates on every load.
+- The 0.1.0 layout migration keeps the old `X/Profiles` folders, on purpose, for an established archive.
+
+### Two Lists
+
+- `profiles` is a few accounts, each a row with its own settings. `bulkList` is the long tail, hundreds of handles as text.
+- The bulk list is edited in a popup behind Manage… (`ListModal`, the same class as the others). It saves on Save, or on closing with an edit in it. Only Cancel discards.
+- It takes `@handle`, a bare handle or a URL, skips blank lines and ignores lines starting with `#`.
+- A handle in both lists syncs once, and the row wins (`allProfiles()`).
+
+### Rate Limits and Cookies
+
+- X rate-limits a logged-in session hard. `sleepRequest`, `maxPerProfile` and `useDownloadArchive` all matter.
+- A 429 is reported through `explain()` with the fix.
+- Cookies are read from the browser at each run (`--cookies-from-browser`). The plugin stores none.
+- Safari is tried last: its cookies need Full Disk Access, which fails like a login problem.
+- `data.json` holds the cookie source and the profile list, so it is gitignored.
+- On the PC, Chrome's cookies depend on the GNOME keyring. Set Up External Tools tests them and names a broken keyring.
+- For a broken keyring, advise a restart. A log out and back in once ended in NVIDIA errors and a reset PC.
+
+### Building and Releasing
+
+- `npm run build` writes `dist/main.js` and `dist/manifest.json`. Check a release in a folder with no `lib/`.
+- `lib()` takes `ARCH_LIB` when the build defined it, else reads `lib/` from disk. Keep both.
+- `dropLibFromRequireCache()` clears the plugin folder and its real path from `require.cache`.
+- Rewriting history means moving every tag too. The steps: `Details.md`, Rewriting History Means Repointing Every Tag.
+
+## Mistakes and Lessons
+
+- The first live run: every post link was a 404, because `JSON.parse` rounded the ids.
+- The first Obsidian run: After Clipping probed each new post note and downloaded a video and an mp3.
+- Changing defaults did nothing in a vault with saved settings. Four rounds of work looked unapplied.
+- Editing `data.json` while Obsidian ran was reverted by the plugin and wasted a round of debugging.
+- A migration ran only in memory. `data.json` kept `x-author-name` for days.
+- A profile sync would have erased `t-rank` and his body text. It never bit, because the hand-made notes had not been synced.
+- This file once said `profile_image` needed its `_normal` stripped. gallery-dl already does it.
+- The plugin rename (`arch-x-archive` to `arch-x-twitter`) and the TECHS to TECHNOS rename broke the venv in TECHNOS and `~/Documents` until Sep 25.
+- Sep 27: the PC had no gallery-dl, and the plugin threw `spawn … ENOENT`.
+- `findByPostId` once scanned the whole vault per post: 30,000 scans at full scale.
+
+## Where It Stands
+
+- 0.11.10 is current. In CHAOS, TECHNOS and `~/Documents` through BRAT. TESTFIELD has the symlink. Checked Oct 9.
+- No vault has a profile in either list, on purpose. TECHNOS has an empty `Twitter/Posts` folder.
+- TECHNOS holds 182 hand-made profile notes. 29 carry `name`, not `x-name`, so After Clipping's marker misses them.
+	- Harmless while After Clipping's x.com pattern matches only `/status/`.
+- TESTFIELD's `Twitter/Profiles` holds one note, `@nickfloats.md`.
+- `dropLibFromRequireCache` does not walk `window.require.cache`, the fault Recreations fixed. Untested here.
+- Not built:
+	- media download. The settings exist, nothing reads them. Copy YT Playlists' rule: the file on disk decides;
+	- threads. `conversation_id` is there, nothing groups it;
+	- a `/status/` link in Archive an X Post or Profile by URL… is read as a profile;
+	- the venv reinstalling itself after a vault rename.
+- Archiving waits for the X/Twitter part of his Internet Research System, a smart filter that picks what to keep. His words, Oct 9: "to archive blindly will quickly clutter my vault, we need a smart filter rule, maybe singal identifier skill."
+- Leave the post template alone until then. The filter decides the template.
+- Never run by a person: the setup popup's install button, the bulk-add popup, the URL prompt and every folder mode but the default.
+- Not tried: a large `--post-range`, the download archive, 150 profiles' rate limits, protected accounts.
